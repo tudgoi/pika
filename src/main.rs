@@ -1,11 +1,12 @@
-use std::path::PathBuf;
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use anyhow::{Result};
 use pika::init;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
+    db: PathBuf,
     #[command(subcommand)]
     command: Commands,
 }
@@ -19,6 +20,6 @@ fn main() -> Result<()> {
     let args = Cli::parse();
 
     match args.command {
-        Commands::Init { schema } => init::run(schema),
+        Commands::Init { schema } => init::run(args.db, schema),
     }
 }

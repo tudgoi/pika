@@ -6,10 +6,14 @@ use std::{fs, path::PathBuf};
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 pub fn run(db_path: PathBuf, schema_path: PathBuf) -> Result<()> {
-    let conn = Connection::open(db_path)?;
+    let conn = Connection::open(&db_path)
+        .with_context(|| format!("could not open database: {:?}", db_path))?;
+
+    // setup our tables
     conn.execute_batch(SCHEMA_SQL)
         .with_context(|| format!("could not create tables"))?;
 
+    // insert the given schema for the app
     let files = schema_path
         .read_dir()
         .with_context(|| format!("could not read schema dir: {:?}", schema_path))?;
@@ -33,6 +37,8 @@ pub fn run(db_path: PathBuf, schema_path: PathBuf) -> Result<()> {
             (&schema_name, schema.abstrct),
         )
         .with_context(|| format!("could not insert schema"))?;
+        
+        // insert properties
         if let Some(schema_properties) = schema.properties {
             for (name, schema_property) in schema_properties {
                 conn.execute(
@@ -42,6 +48,22 @@ pub fn run(db_path: PathBuf, schema_path: PathBuf) -> Result<()> {
                 .with_context(|| {
                     format!(
                         "could not insert property {} for schema {}",
+                        name, schema_name
+                    )
+                })?;
+            }
+        }
+
+        // insert extends
+        if let Some(schema_extends) = schema.extends {
+            for name in schema_extends {
+                conn.execute(
+                    "INSERT INTO schema_extend VALUES(?1, ?2)",
+                    (&schema_name, &name),
+                )
+                .with_context(|| {
+                    format!(
+                        "could not insert extends {} for schema {}",
                         name, schema_name
                     )
                 })?;

@@ -9,3 +9,8 @@ CREATE TABLE schema_property (
     name TEXT NOT NULL,
     type TEXT NOT NULL
 );
+
+CREATE TABLE schema_extend (
+    schema_name TEXT NOT NULL,
+    extends TEXT NOT NULL
+)

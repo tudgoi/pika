@@ -7,6 +7,7 @@ pub struct Schema {
     #[serde(rename = "abstract")]
     pub abstrct: bool,
     
+    pub extends: Option<Vec<String>>,
     pub properties: Option<HashMap<String, SchemaProperty>>,
 }
 

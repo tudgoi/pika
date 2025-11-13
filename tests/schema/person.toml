@@ -1,1 +1,3 @@
 abstract = false
+
+extends = ["thing"]

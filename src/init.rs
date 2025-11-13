@@ -1,6 +1,6 @@
-use crate::schema::Schema;
+use crate::schema::{self, Schema};
 use anyhow::{Context, Result};
-use rusqlite::Connection;
+use rusqlite::{Connection, ToSql};
 use std::{fs, path::PathBuf};
 
 const SCHEMA_SQL: &str = include_str!("schema.sql");
@@ -14,25 +14,48 @@ pub fn run(db_path: PathBuf, schema_path: PathBuf) -> Result<()> {
         .read_dir()
         .with_context(|| format!("could not read schema dir: {:?}", schema_path))?;
     for entry in files {
-        let file =
-            entry.with_context(|| format!("could not get file entry in {:?}", schema_path))?
+        let file = entry
+            .with_context(|| format!("could not get file entry in {:?}", schema_path))?
             .path();
-        let name = file.file_stem()
+        let schema_name = file
+            .file_stem()
             .with_context(|| format!("could not extract file stem from {:?}", file))?
             .to_str()
             .with_context(|| format!("could not convert file stem to string {:?}", file))?
             .to_string();
-        let str = fs::read_to_string(file)
+        let str = fs::read_to_string(&file)
             .with_context(|| format!("could not read schema file: {:?}", schema_path))?;
         let schema: Schema = toml::from_str(&str)
-            .with_context(|| format!("could not parse schema file: {:?}", schema_path))?;
+            .with_context(|| format!("could not parse schema file: {:?}", file))?;
 
         conn.execute(
             "INSERT INTO schema (name, abstract) VALUES (?1, ?2)",
-            (name, schema.abstrct),
+            (&schema_name, schema.abstrct),
         )
         .with_context(|| format!("could not insert schema"))?;
+        if let Some(schema_properties) = schema.properties {
+            for (name, schema_property) in schema_properties {
+                conn.execute(
+                    "INSERT INTO schema_property VALUES(?1, ?2, ?3)",
+                    (&schema_name, &name, schema_property.typ),
+                )
+                .with_context(|| {
+                    format!(
+                        "could not insert property {} for schema {}",
+                        name, schema_name
+                    )
+                })?;
+            }
+        }
     }
 
     Ok(())
+}
+
+impl ToSql for schema::Type {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        match self {
+            schema::Type::Name => Ok("name".into()),
+        }
+    }
 }

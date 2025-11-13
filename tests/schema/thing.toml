@@ -1,1 +1,4 @@
 abstract = true
+
+[properties.name]
+type = "name"

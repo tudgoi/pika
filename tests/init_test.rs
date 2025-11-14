@@ -16,7 +16,7 @@ fn test_sample_schema() -> Result<()> {
     let db_path = tempdir.path().join("sample_schema.db");
 
     // Call the run function.
-    let result = init::run(db_path, schema_path);
+    let result = init::run(&db_path, schema_path);
 
     result.expect("could not init db");
 

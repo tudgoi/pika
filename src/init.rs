@@ -1,11 +1,11 @@
 use crate::schema::{self, Schema};
 use anyhow::{Context, Result};
 use rusqlite::{Connection, ToSql};
-use std::{fs, path::PathBuf};
+use std::{fs, path::{Path, PathBuf}};
 
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
-pub fn run(db_path: PathBuf, schema_path: PathBuf) -> Result<()> {
+pub fn run(db_path: &Path, schema_path: PathBuf) -> Result<()> {
     let conn = Connection::open(&db_path)
         .with_context(|| format!("could not open database: {:?}", db_path))?;
 

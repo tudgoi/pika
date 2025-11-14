@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use pika::init;
+use pika::import;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -14,12 +15,17 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Init { schema: PathBuf },
+    Import { data: PathBuf, mapping: PathBuf },
 }
 
 fn main() -> Result<()> {
     let args = Cli::parse();
 
     match args.command {
-        Commands::Init { schema } => init::run(args.db, schema),
+        Commands::Init { schema } => init::run(&args.db, schema),
+        Commands::Import {
+            data: data_path,
+            mapping: mapping_path,
+        } => import::run(&args.db, data_path, mapping_path),
     }
 }

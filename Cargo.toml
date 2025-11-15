@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.100"
 clap = { version = "4.5.45", features = ["derive"] }
+jaq-core = "=3.0.0-alpha"
+jaq-json = {version = "=2.0.0-alpha", features = ["toml"] }
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"

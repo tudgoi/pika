@@ -4,5 +4,5 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct Mapping {
-    properties: HashMap<String, HashMap<String, String>>,
+    pub properties: HashMap<String, HashMap<String, String>>,
 }

@@ -27,7 +27,6 @@ pub fn run(db_path: &Path, data_path: PathBuf, mapping_path: PathBuf) -> Result<
             for result in mapper.run(data) {
                 let property = result
                     .with_context(|| format!("could not run mapper for schema {} and id {}", schema_name, id))?;
-                println!("{} {} {} {} {}", &schema_name, &id, property.schema, property.name, property.value);
                 conn.execute("
                     INSERT INTO entity_property
                         (entity_schema_name, entity_id, property_schema_name, property_name, value) VALUES

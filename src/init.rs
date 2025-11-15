@@ -1,6 +1,6 @@
 use crate::{
+    parsedir,
     schema::{self, Schema},
-    tomldir,
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, ToSql};
@@ -22,8 +22,8 @@ pub fn run(db_path: &Path, schema_path: PathBuf) -> Result<()> {
 
     let mut schemas = HashMap::new();
     let mut ts = TopologicalSort::<String>::new();
-    for result in tomldir::parse::<Schema>(&schema_path)? {
-        let (schema_name, schema) = result?;
+    for result in parsedir::parse(&schema_path, |s| toml::from_str(s))? {
+        let (schema_name, schema): (String, Schema) = result?;
         ts.insert(schema_name.clone());
         if let Some(extends) = &schema.extends {
             for parent in extends {

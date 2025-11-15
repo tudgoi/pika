@@ -5,7 +5,7 @@ use tempdir::TempDir;
 use anyhow::{Context, Result};
 
 #[test]
-fn test_sample_import() -> Result<()> {
+fn test_sample_data() -> Result<()> {
     // Get the path to the test schema file.
 
     let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

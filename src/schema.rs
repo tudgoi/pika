@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Schema {
     #[serde(rename = "abstract")]
     pub abstrct: bool,
@@ -11,13 +11,13 @@ pub struct Schema {
     pub properties: Option<HashMap<String, SchemaProperty>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SchemaProperty {
     #[serde(rename = "type")]
     pub typ: Type,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Type {
     Name,

@@ -29,6 +29,6 @@ fn main() -> Result<()> {
             data: data_path,
             mapping: mapping_path,
         } => import::run(&args.db, data_path, mapping_path),
-        Commands::Serve => serve::run(&args.db),
+        Commands::Serve => serve::run(args.db),
     }
 }

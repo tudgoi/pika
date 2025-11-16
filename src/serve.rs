@@ -3,10 +3,10 @@ use axum::{
     Router, extract,
     http::StatusCode,
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, put},
 };
 use include_dir::{Dir, include_dir};
-use std::{path::{PathBuf}, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tera::Tera;
 
 use crate::store::Store;
@@ -23,7 +23,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Something went wrong: {}", self.0),
+            format!("Something went wrong: {:?}", self.0),
         )
             .into_response()
     }
@@ -40,10 +40,19 @@ where
 
 #[tokio::main]
 pub async fn run(db_path: PathBuf) -> Result<()> {
-    let state = AppState{ db_path };
+    let state = AppState { db_path };
     let app = Router::new()
         .route("/", get(root))
-        .route("/entities/{schema}/{id}", get(view))
+        .route("/entities/{schema}/{id}/edit", get(entity_edit))
+        .route(
+            "/entities/{schema}/{id}/{property_schema}",
+            get(properties_view),
+        )
+        .route("/entities/{schema}/{id}/{property_schema}", put(properties_save))
+        .route(
+            "/entities/{entity_schema}/{id}/{schema}/edit",
+            get(properties_edit),
+        )
         .with_state(Arc::new(state));
     let addr = format!("0.0.0.0:{}", 8080);
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -86,17 +95,78 @@ async fn root() -> Result<Html<String>, AppError> {
 }
 
 #[axum::debug_handler]
-async fn view(
+async fn entity_edit(
     extract::State(state): extract::State<Arc<AppState>>,
     extract::Path((schema, id)): extract::Path<(String, String)>,
 ) -> Result<Html<String>, AppError> {
     let store = Store::open(&state.db_path)?;
-    let entity = store.get_entity(&schema, &id)?;
+    let properties = store.get_all_properties(&schema, &id)?;
 
     let tera = template_new()?;
     let mut context = tera::Context::new();
-    context.insert("entity", &entity);
-    let body = tera.render("view.html", &context)?;
+    context.insert("schema", &schema);
+    context.insert("id", &id);
+    context.insert("properties", &properties);
+    let body = tera.render("entity_edit.html", &context)?;
+
+    Ok(Html(body))
+}
+
+#[axum::debug_handler]
+async fn properties_edit(
+    extract::State(state): extract::State<Arc<AppState>>,
+    extract::Path((schema, id, property_schema)): extract::Path<(String, String, String)>,
+) -> Result<Html<String>, AppError> {
+    let store = Store::open(&state.db_path)?;
+    let properties = store.get_properties(&schema, &id, &property_schema)?;
+
+    let tera = template_new()?;
+    let mut context = tera::Context::new();
+    context.insert("schema", &schema);
+    context.insert("id", &id);
+    context.insert("property_schema", &property_schema);
+    context.insert("properties", &properties);
+    let body = tera.render("properties_edit_partial.html", &context)?;
+
+    Ok(Html(body))
+}
+
+#[axum::debug_handler]
+async fn properties_view(
+    extract::State(state): extract::State<Arc<AppState>>,
+    extract::Path((schema, id, property_schema)): extract::Path<(String, String, String)>,
+) -> Result<Html<String>, AppError> {
+    let store = Store::open(&state.db_path)?;
+    let properties = store.get_properties(&schema, &id, &property_schema)?;
+
+    let tera = template_new()?;
+    let mut context = tera::Context::new();
+    context.insert("schema", &schema);
+    context.insert("id", &id);
+    context.insert("property_schema", &property_schema);
+    context.insert("properties", &properties);
+    let body = tera.render("properties_view_partial.html", &context)?;
+
+    Ok(Html(body))
+}
+
+#[axum::debug_handler]
+async fn properties_save(
+    extract::State(state): extract::State<Arc<AppState>>,
+    extract::Path((schema, id, property_schema)): extract::Path<(String, String, String)>,
+    extract::Form(properties): extract::Form<HashMap<String, String>>,
+) -> Result<Html<String>, AppError> {
+    let mut store = Store::open(&state.db_path)?;
+    store.put_properties(&schema, &id, &property_schema, properties)?;
+    let properties = store.get_properties(&schema, &id, &property_schema)?;
+
+    let tera = template_new()?;
+    let mut context = tera::Context::new();
+    context.insert("schema", &schema);
+    context.insert("id", &id);
+    context.insert("property_schema", &property_schema);
+    context.insert("properties", &properties);
+    let body = tera.render("properties_view_partial.html", &context)?;
 
     Ok(Html(body))
 }

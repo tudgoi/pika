@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" crossorigin="anonymous"></script>
+</head>
+
+<body hx-boost="true">
+    <h1>{{ id }}</h1>
+    {% for property_schema, properties in properties %}
+    <h2>{{ property_schema }}</h2>
+    {% include "properties_view_partial.html" %}
+    {% endfor %}
+</body>
+
+</html>

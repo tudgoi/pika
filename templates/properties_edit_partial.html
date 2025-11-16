@@ -1,0 +1,10 @@
+<form hx-put="/entities/{{ schema }}/{{ id }}/{{ property_schema }}" hx-target="this" hx-swap="outerHTML">
+    {% for property, value in properties %}
+    <div>
+        <label>{{ property }}</label>
+        <input type="text" name="{{ property }}" value="{{ value }}">
+    </div>
+    {% endfor %}
+    <button class="btn" type="submit">Save</button>
+    <button class="btn" hx-get="/entities/{{ schema }}/{{ id }}/{{ property_schema }}">Cancel</button>
+</form>

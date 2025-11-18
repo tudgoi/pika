@@ -1,4 +1,5 @@
 mod entity;
+mod source;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -43,19 +44,20 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
     let state = AppState { db_path };
     let app = Router::new()
         .route("/", get(root))
-        .route("/entity/{schema}/{id}/edit", get(entity::entity_edit))
+        .route("/entity/{schema}/{id}/edit", get(entity::edit))
         .route(
             "/entity/{schema}/{id}/{property_schema}",
-            get(entity::properties_view),
+            get(entity::properties_view_partial),
         )
         .route(
             "/entity/{schema}/{id}/{property_schema}",
-            put(entity::properties_save),
+            put(entity::properties_save_partial),
         )
         .route(
             "/entity/{entity_schema}/{id}/{schema}/edit",
-            get(entity::properties_edit),
+            get(entity::properties_edit_partial),
         )
+        .route("/source/list", get(source::list))
         .with_state(Arc::new(state));
     let addr = format!("0.0.0.0:{}", 8080);
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -76,7 +78,6 @@ fn template_new() -> Result<Tera> {
     let glob = "**/*.html";
     for direntry in TEMPLATES_DIR.find(glob)? {
         if let Some(file) = direntry.as_file() {
-            println!("Adding {:?}", file.path());
             let path = file
                 .path()
                 .to_str()

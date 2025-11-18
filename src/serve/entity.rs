@@ -8,7 +8,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{serve::{AppError, AppState, template_new}, store::Store};
 
 #[axum::debug_handler]
-pub async fn entity_edit(
+pub async fn edit(
     extract::State(state): extract::State<Arc<AppState>>,
     extract::Path((schema, id)): extract::Path<(String, String)>,
 ) -> Result<Html<String>, AppError> {
@@ -26,7 +26,7 @@ pub async fn entity_edit(
 }
 
 #[axum::debug_handler]
-pub async fn properties_edit(
+pub async fn properties_edit_partial(
     extract::State(state): extract::State<Arc<AppState>>,
     extract::Path((schema, id, property_schema)): extract::Path<(String, String, String)>,
 ) -> Result<Html<String>, AppError> {
@@ -45,7 +45,7 @@ pub async fn properties_edit(
 }
 
 #[axum::debug_handler]
-pub async fn properties_view(
+pub async fn properties_view_partial(
     extract::State(state): extract::State<Arc<AppState>>,
     extract::Path((schema, id, property_schema)): extract::Path<(String, String, String)>,
 ) -> Result<Html<String>, AppError> {
@@ -64,7 +64,7 @@ pub async fn properties_view(
 }
 
 #[axum::debug_handler]
-pub async fn properties_save(
+pub async fn properties_save_partial(
     extract::State(state): extract::State<Arc<AppState>>,
     extract::Path((schema, id, property_schema)): extract::Path<(String, String, String)>,
     extract::Form(properties): extract::Form<HashMap<String, String>>,

@@ -96,4 +96,22 @@ impl Store {
 
         Ok(())
     }
+    
+    pub fn get_sources(&self) -> Result<HashMap<i64, String>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, url FROM source",
+        )?;
+
+        let rows = stmt.query_map(rusqlite::params![], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut sources: HashMap<i64, String> = HashMap::new();
+        for row_result in rows {
+            let (id, url) = row_result?;
+            sources.insert(id, url.to_string());
+        }
+
+        Ok(sources)
+    }
 }

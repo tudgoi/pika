@@ -28,6 +28,25 @@ CREATE TABLE entity_property (
     property_schema_name TEXT NOT NULL,
     property_name TEXT NOT NULL,
     value TEXT NOT NULL,
-    PRIMARY KEY(entity_schema_name, entity_id, property_schema_name, property_name)
-    FOREIGN KEY(entity_schema_name, entity_id) REFERENCES entity(schema_name, id) FOREIGN KEY(property_schema_name, property_name) REFERENCES schema_property(schema_name, name)
+    PRIMARY KEY(
+        entity_schema_name,
+        entity_id,
+        property_schema_name,
+        property_name
+    ) FOREIGN KEY(entity_schema_name, entity_id) REFERENCES entity(schema_name, id) FOREIGN KEY(property_schema_name, property_name) REFERENCES schema_property(schema_name, name)
+);
+-- [source]
+CREATE TABLE source (
+    id INTEGER,
+    url TEXT NOT NULL,
+    PRIMARY KEY(id) UNIQUE(url)
+);
+-- [source_document]
+CREATE TABLE source_document (
+    id INTEGER,
+    source_id INTEGER,
+    etag TEXT,
+    retrieved_date TEXT,
+    data TEXT,
+    PRIMARY KEY(id) FOREIGN KEY(source_id) REFERENCES source(id)
 );

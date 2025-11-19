@@ -41,12 +41,13 @@ CREATE TABLE source (
     url TEXT NOT NULL,
     PRIMARY KEY(id) UNIQUE(url)
 );
--- [source_document]
-CREATE TABLE source_document (
-    id INTEGER,
-    source_id INTEGER,
+-- [document]
+CREATE TABLE document (
+    id TEXT,
+    source_id INTEGER NOT NULL,
+    retrieved_date TEXT NOT NULL,
     etag TEXT,
-    retrieved_date TEXT,
-    data TEXT,
+    title TEXT,
+    content TEXT,
     PRIMARY KEY(id) FOREIGN KEY(source_id) REFERENCES source(id)
 );

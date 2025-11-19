@@ -6,7 +6,7 @@ use axum::{
     Router,
     http::StatusCode,
     response::{Html, IntoResponse, Response},
-    routing::{get, put},
+    routing::{get, post, put},
 };
 use include_dir::{Dir, include_dir};
 use std::{path::PathBuf, sync::Arc};
@@ -58,6 +58,7 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
             get(entity::properties_edit_partial),
         )
         .route("/source/list", get(source::list))
+        .route("/source/{id}/fetch", post(source::fetch))
         .with_state(Arc::new(state));
     let addr = format!("0.0.0.0:{}", 8080);
     let listener = tokio::net::TcpListener::bind(&addr)

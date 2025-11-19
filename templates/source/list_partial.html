@@ -1,0 +1,9 @@
+{% for id, document in documents %}
+<tr>
+    <td>{{ id }}</td>
+    <td>{{ document.retrieved }}</td>
+    <td>{{ document.etag }}</td>
+    <td>{{ document.title }}</td>
+    <td><pre>{{ document.content }}</pre></td>
+</tr>
+{% endfor %}

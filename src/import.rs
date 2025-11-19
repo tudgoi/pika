@@ -27,11 +27,15 @@ pub fn run(db_path: &Path, data_path: PathBuf, mapping_path: PathBuf) -> Result<
             for result in mapper.run(data) {
                 let property = result
                     .with_context(|| format!("could not run mapper for schema {} and id {}", schema_name, id))?;
-                conn.execute("
+                let property_value = match &property.value {
+                Val::Str(s, _) => String::from_utf8(s.to_vec()).context("Invalid UTF-8 string in property value")?,
+                _ => property.value.to_string(),
+            };
+            conn.execute("
                     INSERT INTO entity_property
                         (entity_schema_name, entity_id, property_schema_name, property_name, value) VALUES
                         (?1, ?2, ?3, ?4, ?5)
-                    ", (&schema_name, &id, &property.schema, &property.name, &property.value.to_string()))?;
+                    ", (&schema_name, &id, &property.schema, &property.name, &property_value))?;
             }
         }
     }

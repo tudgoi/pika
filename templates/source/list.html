@@ -8,10 +8,31 @@
 <body hx-boost="true">
     <h1>Sources</h1>
     <dl>
-    {% for id, url in sources %}
-        <dt>{{ id }}</dt>
-        <dd>{{ url }}</dd>
-    {% endfor %}
+        {% for id, source in sources %}
+        <dt>
+            {{ source.url | truncate(length=50)}} <a href="{{ source.url }}" target="_blank">↗</a>
+            <button hx-post="/source/{{ id }}/fetch" hx-target="#source-documents-{{ id }}">
+                Fetch <img class="htmx-indicator" src="https://htmx.org/img/bars.svg" alt="">
+            </button>
+        </dt>
+        <dd>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Retreived</th>
+                        <th>ETag</th>
+                        <th>title</th>
+                        <th>content</th>
+                    </tr>
+                </thead>
+                <tbody id="source-documents-{{ id }}">
+                    {% set documents = source.documents %}
+                    {% include "source/list_partial.html" %}
+                </tbody>
+            </table>
+        </dd>
+        {% endfor %}
     </dl>
 </body>
 

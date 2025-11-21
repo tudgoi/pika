@@ -4,8 +4,7 @@ use axum::{extract, response::Html};
 use chrono::Local;
 
 use crate::{
-    serve::{AppError, AppState, template_new},
-    store::{Document, Store},
+    chu, serve::{AppError, AppState, template_new}, store::{Document, Store}
 };
 
 #[axum::debug_handler]
@@ -43,6 +42,9 @@ pub async fn fetch(
             response.status()
         )));
     };
+    
+    let tables = chu::extract_tables(&body);
+    let text = chu::tables_to_string(tables);
 
     store.add_document(
         id,
@@ -50,7 +52,7 @@ pub async fn fetch(
             retrieved: Local::now().to_rfc3339(),
             etag: None,
             title: "".to_string(),
-            content: body,
+            content: text,
         },
     )?;
 

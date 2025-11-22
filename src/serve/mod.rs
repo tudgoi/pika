@@ -8,11 +8,13 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{get, post, put},
 };
-use include_dir::{Dir, include_dir};
+use rust_embed::Embed;
 use std::{path::PathBuf, sync::Arc};
 use tera::Tera;
 
-static TEMPLATES_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/templates");
+#[derive(Embed)]
+#[folder = "$CARGO_MANIFEST_DIR/templates/"]
+struct Asset;
 
 struct AppState {
     db_path: PathBuf,
@@ -74,21 +76,13 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
 }
 
 fn template_new() -> Result<Tera> {
-    let mut templates: Vec<(&str, &str)> = Vec::new();
+    let mut templates: Vec<(String, String)> = Vec::new();
     // Iterate over the files in the embedded directory.
-    let glob = "**/*.html";
-    for direntry in TEMPLATES_DIR.find(glob)? {
-        if let Some(file) = direntry.as_file() {
-            let path = file
-                .path()
-                .to_str()
-                .with_context(|| format!("Path is not valid UTF-8: {:?}", file.path()))?;
-            let content = file
-                .contents_utf8()
-                .with_context(|| format!("Template file is not valid UTF-8: {}", path))?;
-
-            // Add the template to Tera. We use the file's path as the template name.
-            templates.push((path, content));
+    for filename in Asset::iter() {
+        if let Some(file) = Asset::get(&filename) {
+            let bytes = file.data.as_ref();
+            let str = String::from_utf8(bytes.to_vec())?;
+            templates.push((String::from(filename), str));
         }
     }
 

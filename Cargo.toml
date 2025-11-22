@@ -7,7 +7,6 @@ edition = "2024"
 anyhow = "1.0.100"
 axum = { version = "0.8.7", features = ["macros"] }
 clap = { version = "4.5.45", features = ["derive"] }
-include_dir = { version = "0.7.4", features = ["glob"] }
 jaq-core = "=3.0.0-alpha"
 jaq-json = {version = "=2.0.0-alpha", features = ["toml"] }
 reqwest = "0.12.24"
@@ -21,6 +20,7 @@ toml = { version = "0.9.8", features = ["serde"] }
 topological-sort = "0.2.2"
 chrono = "0.4"
 scraper = "0.24.0"
+rust-embed = { version = "8.9.0", features = ["interpolate-folder-path"] }
 
 [dev-dependencies]
 tempdir = "0.3.7"

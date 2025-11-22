@@ -74,7 +74,7 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
 }
 
 fn template_new() -> Result<Tera> {
-    let mut tera = Tera::default();
+    let mut templates: Vec<(&str, &str)> = Vec::new();
     // Iterate over the files in the embedded directory.
     let glob = "**/*.html";
     for direntry in TEMPLATES_DIR.find(glob)? {
@@ -88,11 +88,13 @@ fn template_new() -> Result<Tera> {
                 .with_context(|| format!("Template file is not valid UTF-8: {}", path))?;
 
             // Add the template to Tera. We use the file's path as the template name.
-            tera.add_raw_template(path, content)
-                .with_context(|| format!("Error loading template {}", path))?;
+            templates.push((path, content));
         }
     }
 
+    let mut tera = Tera::default();
+    tera.add_raw_templates(templates)
+        .with_context(|| format!("Error loading templates"))?;
     Ok(tera)
 }
 

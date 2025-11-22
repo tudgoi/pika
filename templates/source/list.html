@@ -1,39 +1,31 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" crossorigin="anonymous"></script>
-</head>
-
-<body hx-boost="true">
-    <h1>Sources</h1>
-    <dl>
-        {% for id, source in sources %}
-        <dt>
-            {{ source.url | truncate(length=50)}} <a href="{{ source.url }}" target="_blank">↗</a>
-            <button hx-post="/source/{{ id }}/fetch" hx-target="#source-documents-{{ id }}">
-                Fetch <img class="htmx-indicator" src="https://htmx.org/img/bars.svg" alt="">
-            </button>
-        </dt>
-        <dd>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Retreived</th>
-                        <th>ETag</th>
-                        <th>title</th>
-                        <th>content</th>
-                    </tr>
-                </thead>
-                <tbody id="source-documents-{{ id }}">
-                    {% set documents = source.documents %}
-                    {% include "source/list_partial.html" %}
-                </tbody>
-            </table>
-        </dd>
-        {% endfor %}
-    </dl>
-</body>
-
-</html>
+{% extends "base.html" %}
+{% block content %}
+<h1>Sources</h1>
+<dl>
+    {% for id, source in sources %}
+    <dt>
+        {{ source.url | truncate(length=50)}} <a href="{{ source.url }}" target="_blank">↗</a>
+        <button hx-post="/source/{{ id }}/fetch" hx-target="#source-documents-{{ id }}">
+            Fetch <img class="htmx-indicator" src="https://htmx.org/img/bars.svg" alt="">
+        </button>
+    </dt>
+    <dd>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Retreived</th>
+                    <th>ETag</th>
+                    <th>title</th>
+                    <th>content</th>
+                </tr>
+            </thead>
+            <tbody id="source-documents-{{ id }}">
+                {% set documents = source.documents %}
+                {% include "source/list_partial.html" %}
+            </tbody>
+        </table>
+    </dd>
+    {% endfor %}
+</dl>
+{% endblock content %}

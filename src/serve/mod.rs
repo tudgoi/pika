@@ -60,7 +60,7 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
             get(entity::properties_edit_partial),
         )
         .route("/source/list", get(source::list))
-        .route("/source/{id}/fetch", post(source::fetch))
+        .route("/source/crawl", post(source::crawl))
         .with_state(Arc::new(state));
     let addr = format!("0.0.0.0:{}", 8080);
     let listener = tokio::net::TcpListener::bind(&addr)

@@ -10,18 +10,33 @@ pub fn run() -> Result<()> {
     let mut buffer = String::new();
     io::stdin().read_to_string(&mut buffer)?;
 
-    let all_tables = extract_tables(&buffer);
-    let output = tables_to_string(all_tables);
+    let document = extract_tables(&buffer);
+    if let Some(title) = document.title {
+        println!("{}", title);
+    }
+    let output = tables_to_string(document.tables);
     print!("{}", output);
     Ok(())
 }
 
-pub fn extract_tables(html: &str) -> Vec<Vec<HashMap<String, String>>> {
+pub struct Document {
+    pub title: Option<String>,
+    pub tables: Vec<Vec<HashMap<String, String>>>,
+}
+
+pub fn extract_tables(html: &str) -> Document {
     let document = Html::parse_document(html);
 
+    let title_selector = Selector::parse("title").unwrap();
     let table_selector = Selector::parse("table").unwrap();
     let tr_selector = Selector::parse("tr").unwrap();
     let td_selector = Selector::parse("td, th").unwrap(); // Select both td and th for cells
+
+    let title = document
+        .select(&title_selector)
+        .next()
+        .and_then(|element| element.text().next())
+        .map(|text| text.trim().to_string());
 
     let mut all_tables: Vec<Vec<HashMap<String, String>>> = Vec::new();
     for table_element in document.select(&table_selector) {
@@ -61,7 +76,10 @@ pub fn extract_tables(html: &str) -> Vec<Vec<HashMap<String, String>>> {
         }
     }
 
-    all_tables
+    Document {
+        title,
+        tables: all_tables,
+    }
 }
 
 pub fn tables_to_string(tables: Vec<Vec<HashMap<String, String>>>) -> String {
@@ -75,7 +93,7 @@ pub fn tables_to_string(tables: Vec<Vec<HashMap<String, String>>>) -> String {
         }
         text.push_str("---\n");
     }
-    
+
     text
 }
 

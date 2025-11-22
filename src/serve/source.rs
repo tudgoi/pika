@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use axum::{extract, response::Html};
-use chrono::Local;
+use reqwest::header;
 
 use crate::{
-    chu, serve::{AppError, AppState, template_new}, store::{Document, Store}
+    chu,
+    serve::{AppError, AppState, template_new},
+    store::Store,
 };
 
 #[axum::debug_handler]
@@ -23,45 +25,38 @@ pub async fn list(
 }
 
 #[axum::debug_handler]
-pub async fn fetch(
+pub async fn crawl(
     extract::State(state): extract::State<Arc<AppState>>,
-    extract::Path(id): extract::Path<i64>,
 ) -> Result<Html<String>, AppError> {
     let mut store = Store::open(&state.db_path)?;
-    let url = store.get_source_url(id)?;
 
-    let response = reqwest::get(url.clone()).await?;
+    let urls = store.get_stale_sources()?;
 
-    // Check if the request was successful (status code 2xx)
-    let body = if response.status().is_success() {
-        // Get the response body as text
-        response.text().await?
-    } else {
-        return Err(AppError(anyhow::anyhow!(
-            "Request failed with status: {}",
-            response.status()
-        )));
-    };
-    
-    let tables = chu::extract_tables(&body);
-    let text = chu::tables_to_string(tables);
+    for (id, url) in urls {
+        let response = reqwest::get(url.clone()).await?;
 
-    store.add_document(
-        id,
-        &Document {
-            retrieved: Local::now().to_rfc3339(),
-            etag: None,
-            title: "".to_string(),
-            content: text,
-        },
-    )?;
+        let etag = if let Some(etag_value) = response.headers().get(header::ETAG) {
+            Some(String::from(etag_value.to_str()?))
+        } else {
+            None
+        };
 
-    let documents = store.get_documents(id)?;
+        // Check if the request was successful (status code 2xx)
+        let body = if response.status().is_success() {
+            // Get the response body as text
+            response.text().await?
+        } else {
+            return Err(AppError(anyhow::anyhow!(
+                "Request failed with status: {}",
+                response.status()
+            )));
+        };
 
-    let tera = template_new()?;
-    let mut context = tera::Context::new();
-    context.insert("documents", &documents);
-    let body = tera.render("source/list_partial.html", &context)?;
+        let document = chu::extract_tables(&body);
+        let text = chu::tables_to_string(document.tables);
 
-    Ok(Html(body))
+        store.add_document(id, etag.as_deref(), document.title.as_deref(), &text)?;
+    }
+
+    Ok(Html(String::from("")))
 }

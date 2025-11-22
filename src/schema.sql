@@ -39,6 +39,8 @@ CREATE TABLE entity_property (
 CREATE TABLE source (
     id INTEGER,
     url TEXT NOT NULL,
+    crawl_date TEXT,
+    force_crawl BOOLEAN,
     PRIMARY KEY(id) UNIQUE(url)
 );
 -- [document]
@@ -48,6 +50,6 @@ CREATE TABLE document (
     retrieved_date TEXT NOT NULL,
     etag TEXT,
     title TEXT,
-    content TEXT,
+    content TEXT NOT NULL,
     PRIMARY KEY(id) FOREIGN KEY(source_id) REFERENCES source(id)
 );

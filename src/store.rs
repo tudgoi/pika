@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
+use chrono::Local;
 use rusqlite::Connection;
 use serde::Serialize;
 
@@ -97,80 +98,116 @@ impl Store {
 
         Ok(())
     }
-    
-    pub fn add_document(&mut self, source_id: i64, document: &Document) -> Result<String, StoreError> {
+
+    pub fn add_document(
+        &mut self,
+        source_id: i64,
+        etag: Option<&str>,
+        title: Option<&str>,
+        content: &str,
+    ) -> Result<String, StoreError> {
         use sha2::{Digest, Sha256};
 
-        let id = format!("{:x}", Sha256::digest(&document.content));
+        let id = format!("{:x}", Sha256::digest(content));
 
         self.conn.execute(
             "INSERT OR IGNORE INTO document (id, source_id, retrieved_date, etag, title, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 id,
                 source_id,
-                document.retrieved,
-                document.etag,
-                document.title,
-                document.content
+                Local::now().to_rfc3339(),
+                etag,
+                title,
+                content
             ],
         )?;
 
         Ok(id)
     }
-    
+
     pub fn get_documents(&self, source_id: i64) -> Result<HashMap<String, Document>, StoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT id, retrieved_date, etag, title, content FROM document WHERE source_id = ?1",
         )?;
-        
+
         let rows = stmt.query_map(rusqlite::params![source_id], |row| {
-            Ok((row.get::<_, String>(0)?, 
-            Document {
-                retrieved: row.get::<_, String>(1)?,
-                etag: row.get::<_, Option<String>>(2)?,
-                title: row.get::<_, String>(3)?,
-                content: row.get::<_, String>(4)?,
-            }))
+            Ok((
+                row.get::<_, String>(0)?,
+                Document {
+                    retrieved: row.get::<_, String>(1)?,
+                    etag: row.get::<_, Option<String>>(2)?,
+                    title: row.get::<_, Option<String>>(3)?,
+                    content: row.get::<_, String>(4)?,
+                },
+            ))
         })?;
-        
+
         let mut documents: HashMap<String, Document> = HashMap::new();
         for row_result in rows {
             let (id, document) = row_result?;
             documents.insert(id, document);
         }
-        
+
         Ok(documents)
     }
 
     pub fn get_source_url(&self, id: i64) -> Result<String, StoreError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT url FROM source WHERE id = ?1",
-        )?;
-        
-        let url = stmt.query_one(rusqlite::params![id], |row| {
-            Ok(row.get::<_, String>(0)?)
-        })?;
-        
+        let mut stmt = self.conn.prepare("SELECT url FROM source WHERE id = ?1")?;
+
+        let url = stmt.query_one(rusqlite::params![id], |row| Ok(row.get::<_, String>(0)?))?;
+
         Ok(url)
     }
-    
-    pub fn get_sources(&self) -> Result<HashMap<i64, SourceDocuments>, StoreError> {
+
+    pub fn get_stale_sources(&self) -> Result<HashMap<i64, String>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, url FROM source",
+            "
+                SELECT id, url FROM source WHERE (((crawl_date IS NOT NULL) OR (unixepoch('now') - unixepoch(crawl_date)) > 12 * 60 * 60) OR force_crawl = TRUE)
+            ",
         )?;
 
         let rows = stmt.query_map(rusqlite::params![], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
         })?;
 
-        let mut sources: HashMap<i64, SourceDocuments> = HashMap::new();
+        let mut sources: HashMap<i64, String> = HashMap::new();
         for row_result in rows {
             let (id, url) = row_result?;
+            sources.insert(id, url);
+        }
+
+        Ok(sources)
+    }
+
+    pub fn get_sources(&self) -> Result<HashMap<i64, SourceDocuments>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "
+                SELECT id, url, crawl_date, force_crawl FROM source
+            ",
+        )?;
+
+        let rows = stmt.query_map(rusqlite::params![], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<bool>>(3)?,
+            ))
+        })?;
+
+        let mut sources: HashMap<i64, SourceDocuments> = HashMap::new();
+        for row_result in rows {
+            let (id, url, crawl_date, force_crawl) = row_result?;
             let documents = self.get_documents(id)?;
-            sources.insert(id, SourceDocuments {
-                url,
-                documents,
-            });
+            sources.insert(
+                id,
+                SourceDocuments {
+                    url,
+                    crawl_date,
+                    force_crawl,
+                    documents,
+                },
+            );
         }
 
         Ok(sources)
@@ -180,6 +217,8 @@ impl Store {
 #[derive(Serialize)]
 pub struct SourceDocuments {
     url: String,
+    crawl_date: Option<String>,
+    force_crawl: Option<bool>,
     documents: HashMap<String, Document>,
 }
 
@@ -187,6 +226,6 @@ pub struct SourceDocuments {
 pub struct Document {
     pub retrieved: String,
     pub etag: Option<String>,
-    pub title: String,
+    pub title: Option<String>,
     pub content: String,
 }

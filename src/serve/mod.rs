@@ -8,6 +8,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{get, post, put},
 };
+use aykroyd::rusqlite::Client;
 use rust_embed::Embed;
 use std::{path::PathBuf, sync::Arc};
 use tera::Tera;
@@ -18,6 +19,12 @@ struct Asset;
 
 struct AppState {
     db_path: PathBuf,
+}
+
+impl AppState {
+    fn db(&self) -> Result<Client, AppError> {
+        Ok(Client::open(&self.db_path)?)
+    }
 }
 
 struct AppError(anyhow::Error);

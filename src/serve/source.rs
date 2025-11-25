@@ -1,20 +1,24 @@
 use std::sync::Arc;
 
 use axum::{extract, response::Html};
+use chrono::Local;
 use reqwest::header;
+use sha2::{Digest, Sha256};
 
 use crate::{
     chu,
     serve::{AppError, AppState, template_new},
-    store::Store,
+    store::{
+        document::AddDocumentStatement,
+        source::{GetSourcesQuery, GetStaleSourcesQuery},
+    },
 };
 
 #[axum::debug_handler]
 pub async fn list(
     extract::State(state): extract::State<Arc<AppState>>,
 ) -> Result<Html<String>, AppError> {
-    let store = Store::open(&state.db_path)?;
-    let sources = store.get_sources()?;
+    let sources = state.db()?.query(&GetSourcesQuery)?;
 
     let tera = template_new()?;
     let mut context = tera::Context::new();
@@ -28,11 +32,11 @@ pub async fn list(
 pub async fn crawl(
     extract::State(state): extract::State<Arc<AppState>>,
 ) -> Result<Html<String>, AppError> {
-    let mut store = Store::open(&state.db_path)?;
+    let mut db = state.db()?;
+    let rows = db.query(&GetStaleSourcesQuery)?;
 
-    let urls = store.get_stale_sources()?;
-
-    for (id, url) in urls {
+    for row in rows {
+        let (source_id, url) = (row.id, row.url);
         let response = reqwest::get(url.clone()).await?;
 
         let etag = if let Some(etag_value) = response.headers().get(header::ETAG) {
@@ -55,7 +59,14 @@ pub async fn crawl(
         let document = chu::extract_tables(&body);
         let text = chu::tables_to_string(document.tables);
 
-        store.add_document(id, etag.as_deref(), document.title.as_deref(), &text)?;
+        db.execute(&AddDocumentStatement {
+            id: &format!("{:x}", Sha256::digest(body)),
+            source_id,
+            retrieved_date: &Local::now().to_rfc3339(),
+            etag: etag.as_deref(),
+            title: document.title.as_deref(),
+            content: &text,
+        })?;
     }
 
     Ok(Html(String::from("")))

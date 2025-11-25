@@ -10,7 +10,6 @@ clap = { version = "4.5.45", features = ["derive"] }
 jaq-core = "=3.0.0-alpha"
 jaq-json = {version = "=2.0.0-alpha", features = ["toml"] }
 reqwest = "0.12.24"
-rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 sha2 = "0.10.9"
 tera = "1.20.1"
@@ -21,6 +20,8 @@ topological-sort = "0.2.2"
 chrono = "0.4"
 scraper = "0.24.0"
 rust-embed = { version = "8.9.0", features = ["interpolate-folder-path"] }
+aykroyd = { version = "0.3.1", features = ["derive", "rusqlite"]}
+rusqlite = "0.x"
 
 [dev-dependencies]
 tempdir = "0.3.7"

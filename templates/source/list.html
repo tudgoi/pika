@@ -4,7 +4,8 @@
     <img class="htmx-indicator" src="https://htmx.org/img/bars.svg" alt="">
 </h2>
 <dl id="source-documents">
-    {% for id, source in sources %}
+    {% for source in sources %}
+    {% set id = source.id %}
     <dt>
         <a href="{{ source.url }}" target="_blank">{{ source.url | truncate(length=50)}} ↗</a>
     </dt>
@@ -21,16 +22,6 @@
         {% else %}
         Not crawled yet
         {% endif %}
-        {% set documents = source.documents %}
-        {% for id, document in documents %}
-        <dl>
-            <dt>{{ document.title }} ({{ id | truncate(length=6) }})</dt>
-            <dd>
-                {{ document.retrieved }} | {{ document.etag }}
-            </dd>
-        </dl>
-
-        {% endfor %}
     </dd>
     {% endfor %}
 </dl>

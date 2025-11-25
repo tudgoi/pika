@@ -1,28 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Sources <button hx-post="/source/crawl" hx-target="#source-documents">Crawl </button>
-    <img class="htmx-indicator" src="https://htmx.org/img/bars.svg" alt="">
-</h2>
+<h2>Sources</h2>
+<button hx-post="/source/crawl" hx-target="#source-documents">
+    Crawl <img class="htmx-indicator" src="/static/bars.svg" alt="">
+</button>
 <dl id="source-documents">
-    {% for source in sources %}
-    {% set id = source.id %}
-    <dt>
-        <a href="{{ source.url }}" target="_blank">{{ source.url | truncate(length=50)}} ↗</a>
-    </dt>
-    <dd>
-        {% if source.crawl_date %}
-        Crawled on {{ source.crawl_date }}
-        {% if source.force_crawl %}
-        {% set force_crawl_checked = "checked" %}
-        {% else %}
-        {% set force_crawl_checked = "" %}
-        {% endif %}
-        <input type="checkbox" id="force-crawl-{{ id }}" value="{{ source.force_crawl }}" {{ force_crawl_checked }}>
-        <label for="force-crawl-{{ id }}">Force crawl</label>
-        {% else %}
-        Not crawled yet
-        {% endif %}
-    </dd>
-    {% endfor %}
+    {% include "source/list_partial.html" %}
 </dl>
 {% endblock content %}

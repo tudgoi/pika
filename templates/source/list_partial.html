@@ -1,9 +1,20 @@
-{% for id, document in documents %}
-<tr>
-    <td>{{ id }}</td>
-    <td>{{ document.retrieved }}</td>
-    <td>{{ document.etag }}</td>
-    <td>{{ document.title }}</td>
-    <td><pre>{{ document.content }}</pre></td>
-</tr>
+{% for source in sources %}
+{% set id = source.id %}
+<dt>
+    <a href="{{ source.url }}" target="_blank">{{ source.url | truncate(length=50)}} ↗</a>
+</dt>
+<dd>
+    {% if source.crawl_date %}
+    Crawled on {{ source.crawl_date }}
+    {% if source.force_crawl %}
+    {% set force_crawl_checked = "checked" %}
+    {% else %}
+    {% set force_crawl_checked = "" %}
+    {% endif %}
+    <input type="checkbox" id="force-crawl-{{ id }}" value="{{ source.force_crawl }}" {{ force_crawl_checked }}>
+    <label for="force-crawl-{{ id }}">Force crawl</label>
+    {% else %}
+    Not crawled yet
+    {% endif %}
+</dd>
 {% endfor %}

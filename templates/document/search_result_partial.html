@@ -14,8 +14,6 @@
     </div>
 </dt>
 <dd>
-    <div style="max-height: 4lh; overflow: scroll;">
-        <pre>{{ doc.content }}</pre>
-    </div>
+    <pre>{{ doc.snippet | safe }}</pre>
 </dd>
 {% endfor %}

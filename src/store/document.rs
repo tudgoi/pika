@@ -37,7 +37,7 @@ pub struct GetDocumentsQuery {
 #[aykroyd(
     row(SearchDocumentRow),
     text = "
-        SELECT s.url, d.retrieved_date, d.title, d.content
+        SELECT s.url, d.retrieved_date, d.title, snippet(i.fts_document, -1, '<b>', '</b>', '...', 16) AS snippet
         FROM fts_document($1) AS i
         LEFT JOIN document AS d ON d.id = i.rowid
         LEFT JOIN source AS s ON d.source_id = s.id
@@ -50,5 +50,5 @@ pub struct SearchDocumentRow {
     pub url: String,
     pub retrieved_date: String,
     pub title: Option<String>,
-    pub content: String,
+    pub snippet: String,
 }

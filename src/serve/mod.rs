@@ -1,5 +1,6 @@
 pub mod entity;
 pub mod source;
+pub mod document;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -73,6 +74,8 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
         )
         .route("/source/list", get(source::list))
         .route("/source/crawl", post(source::crawl))
+        .route("/document/search", get(document::search_form))
+        .route("/document/search", post(document::search))
         .route("/static/{*path}", get(static_file))
         .with_state(Arc::new(state));
     let addr = format!("0.0.0.0:{}", 8080);

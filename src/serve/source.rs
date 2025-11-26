@@ -11,7 +11,7 @@ use crate::{
     chu,
     serve::{AppError, AppState, template_new},
     store::{
-        document::AddDocumentStatement,
+        document::AddDocument,
         source::{Sources, StaleSources, UpdateCrawlDate},
     },
 };
@@ -66,11 +66,11 @@ pub async fn crawl(
         let text = chu::tables_to_string(document.tables);
         let now = &Local::now().to_rfc3339();
         
-        let count = db.execute(&UpdateCrawlDate(source_id, now))
+        db.execute(&UpdateCrawlDate(source_id, now))
             .with_context(|| format!("Failed to update crawl date for source ID: {}", source_id))?;
         
-        db.execute(&AddDocumentStatement {
-            id: &format!("{:x}", Sha256::digest(body.as_bytes())), // body needs to be bytes for digest
+        db.execute(&AddDocument {
+            hash: &format!("{:x}", Sha256::digest(body.as_bytes())), // body needs to be bytes for digest
             source_id,
             retrieved_date: now,
             etag: etag.as_deref(),

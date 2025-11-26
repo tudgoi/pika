@@ -1,0 +1,21 @@
+{% for doc in documents %}
+<dt>
+    <div>
+        <a href="{{ doc.url }}">
+            {% if doc.title | length > 0 %}
+            {{ doc.title }}
+            {% else %}
+            {{ doc.url | truncate(length=20) }}
+            {% endif %}
+        </a>
+    </div>
+    <div>
+        {{ doc.retrieved_date }}
+    </div>
+</dt>
+<dd>
+    <div style="max-height: 4lh; overflow: scroll;">
+        <pre>{{ doc.content }}</pre>
+    </div>
+</dd>
+{% endfor %}

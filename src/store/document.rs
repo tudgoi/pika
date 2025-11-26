@@ -1,26 +1,20 @@
 use aykroyd::{FromRow, Query, Statement};
-
+use serde::Serialize;
 
 #[derive(Statement)]
 #[aykroyd(text = "
-    INSERT OR IGNORE INTO document (id, source_id, retrieved_date, etag, title, content) VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT OR IGNORE INTO document (source_id, hash, retrieved_date, etag, title, content) VALUES ($1, $2, $3, $4, $5, $6)
 ")]
-pub struct AddDocumentStatement<'a> {
-    #[aykroyd(param = "$1")]
-    pub id: &'a str,
-    #[aykroyd(param = "$2")]
+pub struct AddDocument<'a> {
     pub source_id: i64,
-    #[aykroyd(param = "$3")]
+    pub hash: &'a str,
     pub retrieved_date: &'a str,
-    #[aykroyd(param = "$4")]
     pub etag: Option<&'a str>,
-    #[aykroyd(param = "$5")]
     pub title: Option<&'a str>,
-    #[aykroyd(param = "$6")]
     pub content: &'a str,
 }
 
-#[derive(FromRow)]
+#[derive(FromRow, Serialize)]
 pub struct DocumentRow {
     pub id: String,
     pub retrieved_date: String,
@@ -37,4 +31,24 @@ pub struct DocumentRow {
 pub struct GetDocumentsQuery {
     #[aykroyd(param = "$1")]
     pub source_id: i64,
+}
+
+#[derive(Query)]
+#[aykroyd(
+    row(SearchDocumentRow),
+    text = "
+        SELECT s.url, d.retrieved_date, d.title, d.content
+        FROM fts_document($1) AS i
+        LEFT JOIN document AS d ON d.id = i.rowid
+        LEFT JOIN source AS s ON d.source_id = s.id
+"
+)]
+pub struct SearchDocuments<'a>(pub &'a str);
+
+#[derive(FromRow, Serialize)]
+pub struct SearchDocumentRow {
+    pub url: String,
+    pub retrieved_date: String,
+    pub title: Option<String>,
+    pub content: String,
 }

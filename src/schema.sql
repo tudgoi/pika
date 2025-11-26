@@ -45,11 +45,28 @@ CREATE TABLE source (
 );
 -- [document]
 CREATE TABLE document (
-    id TEXT,
+    id INTEGER,
     source_id INTEGER NOT NULL,
+    hash TEXT NOT NULL,
     retrieved_date TEXT NOT NULL,
     etag TEXT,
     title TEXT,
     content TEXT NOT NULL,
     PRIMARY KEY(id) FOREIGN KEY(source_id) REFERENCES source(id)
 );
+CREATE VIRTUAL TABLE fts_document USING fts5(
+    title,
+    content,
+    content=document,
+    content_rowid=id
+);
+CREATE TRIGGER document_ai AFTER INSERT ON document BEGIN
+  INSERT INTO fts_document(rowid, title, content) VALUES (new.id, new.title, new.content);
+END;
+CREATE TRIGGER document_ad AFTER DELETE ON document BEGIN
+  INSERT INTO fts_document(fts_document, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
+END;
+CREATE TRIGGER document_au AFTER UPDATE ON document BEGIN
+  INSERT INTO fts_document(fts_document, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
+  INSERT INTO fts_document(rowid, title, content) VALUES (new.id, new.title, new.content);
+END;

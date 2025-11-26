@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>
+    Sources
+    <button hx-post="/source/crawl" hx-target="#source-documents">
+        Crawl <img class="htmx-indicator" src="/static/bars.svg" alt="">
+    </button>
+</h2>
+{% include "source/list_partial.html" %}
+{% endblock content %}

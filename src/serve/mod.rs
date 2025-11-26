@@ -58,7 +58,7 @@ where
 pub async fn run(db_path: PathBuf) -> Result<()> {
     let state = AppState { db_path };
     let app = Router::new()
-        .route("/", get(root))
+        .route("/", get(index))
         .route("/entity/{schema}/{id}/edit", get(entity::edit))
         .route(
             "/entity/{schema}/{id}/{property_schema}",
@@ -72,6 +72,9 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
             "/entity/{entity_schema}/{id}/{schema}/edit",
             get(entity::properties_edit_partial),
         )
+        .route("/source", get(source::index))
+        .route("/source", post(source::add))
+        .route("/source/add", get(source::add_form))
         .route("/source/list", get(source::list))
         .route("/source/crawl", post(source::crawl))
         .route("/document/search", get(document::search_form))
@@ -109,7 +112,7 @@ fn template_new() -> Result<Tera> {
 }
 
 #[axum::debug_handler]
-async fn root() -> Result<Html<String>, AppError> {
+async fn index() -> Result<Html<String>, AppError> {
     let tera = template_new()?;
     let context = tera::Context::new();
     let body = tera.render("index.html", &context)?;

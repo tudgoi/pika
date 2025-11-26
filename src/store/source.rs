@@ -53,9 +53,9 @@ pub struct UpdateCrawlDate<'a>(pub i64, pub &'a str);
 
 #[derive(Statement)]
 #[aykroyd(text = "
-    INSERT INTO source (id, url, crawl_date, force_crawl) VALUES ($1, $2, $3, $4)
+    INSERT INTO source (url) VALUES ($1)
 ")]
-pub struct AddSourceStatement<'a>(pub i64, pub &'a str, pub Option<&'a str>, pub Option<bool>);
+pub struct AddSource<'a>(pub &'a str);
 
 #[derive(FromRow, Debug)]
 pub struct SimpleSourceRow {

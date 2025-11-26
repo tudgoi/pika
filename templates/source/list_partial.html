@@ -1,20 +1,27 @@
-{% for source in sources %}
-{% set id = source.id %}
-<dt>
-    <a href="{{ source.url }}" target="_blank">{{ source.url | truncate(length=50)}} ↗</a>
-</dt>
-<dd>
-    {% if source.crawl_date %}
-    Crawled on {{ source.crawl_date }}
-    {% if source.force_crawl %}
-    {% set force_crawl_checked = "checked" %}
-    {% else %}
-    {% set force_crawl_checked = "" %}
-    {% endif %}
-    <input type="checkbox" id="force-crawl-{{ id }}" value="{{ source.force_crawl }}" {{ force_crawl_checked }}>
-    <label for="force-crawl-{{ id }}">Force crawl</label>
-    {% else %}
-    Not crawled yet
-    {% endif %}
-</dd>
-{% endfor %}
+<div id="source-documents">
+    <button hx-get="/source/add" hx-target="#source-documents" hx-swap="outerHTML">
+        Add
+    </button>
+    <dl>
+        {% for source in sources %}
+        {% set id = source.id %}
+        <dt>
+            <a href="{{ source.url }}" target="_blank">{{ source.url | truncate(length=50)}} ↗</a>
+        </dt>
+        <dd>
+            {% if source.crawl_date %}
+            Crawled on {{ source.crawl_date }}
+            {% if source.force_crawl %}
+            {% set force_crawl_checked = "checked" %}
+            {% else %}
+            {% set force_crawl_checked = "" %}
+            {% endif %}
+            <input type="checkbox" id="force-crawl-{{ id }}" value="{{ source.force_crawl }}" {{ force_crawl_checked }}>
+            <label for="force-crawl-{{ id }}">Force crawl</label>
+            {% else %}
+            Not crawled yet
+            {% endif %}
+        </dd>
+        {% endfor %}
+    </dl>
+</div>

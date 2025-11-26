@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::{extract, response::Html};
 use chrono::Local;
 use reqwest::header;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 use anyhow::Context;
@@ -12,9 +13,23 @@ use crate::{
     serve::{AppError, AppState, template_new},
     store::{
         document::AddDocument,
-        source::{Sources, StaleSources, UpdateCrawlDate},
+        source::{AddSource, Sources, StaleSources, UpdateCrawlDate},
     },
 };
+
+#[axum::debug_handler]
+pub async fn index(
+    extract::State(state): extract::State<Arc<AppState>>,
+) -> Result<Html<String>, AppError> {
+    let sources = state.db()?.query(&Sources)?;
+
+    let tera = template_new()?;
+    let mut context = tera::Context::new();
+    context.insert("sources", &sources);
+    let body = tera.render("source/index.html", &context)?;
+
+    Ok(Html(body))
+}
 
 #[axum::debug_handler]
 pub async fn list(
@@ -25,7 +40,38 @@ pub async fn list(
     let tera = template_new()?;
     let mut context = tera::Context::new();
     context.insert("sources", &sources);
-    let body = tera.render("source/list.html", &context)?;
+    let body = tera.render("source/list_partial.html", &context)?;
+
+    Ok(Html(body))
+}
+
+#[axum::debug_handler]
+pub async fn add_form(
+) -> Result<Html<String>, AppError> {
+    let tera = template_new()?;
+    let context = tera::Context::new();
+    let body = tera.render("source/add_partial.html", &context)?;
+
+    Ok(Html(body))
+}
+
+#[derive(Deserialize)]
+pub struct Source {
+    url: String,
+}
+#[axum::debug_handler]
+pub async fn add(
+    extract::State(state): extract::State<Arc<AppState>>,
+    extract::Form(source): extract::Form<Source>,
+) -> Result<Html<String>, AppError> {
+    state.db()?.execute(&AddSource(&source.url))?;
+    
+    let sources = state.db()?.query(&Sources)?;
+
+    let tera = template_new()?;
+    let mut context = tera::Context::new();
+    context.insert("sources", &sources);
+    let body = tera.render("source/list_partial.html", &context)?;
 
     Ok(Html(body))
 }

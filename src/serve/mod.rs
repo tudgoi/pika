@@ -1,18 +1,21 @@
+pub mod document;
 pub mod entity;
 pub mod source;
-pub mod document;
 
 use anyhow::{Context, Result};
 use axum::{
-    Router, extract, http::StatusCode, response::{Html, IntoResponse, Response}, routing::{get, post, put}
+    Router, extract,
+    http::StatusCode,
+    response::{Html, IntoResponse, Response},
+    routing::{get, post, put},
 };
 use aykroyd::rusqlite::Client;
 use mime_guess::from_path;
 use reqwest::header;
 use rust_embed::Embed;
-use tracing::info;
 use std::{path::PathBuf, sync::Arc};
 use tera::Tera;
+use tracing::info;
 
 #[derive(Embed)]
 #[folder = "$CARGO_MANIFEST_DIR/templates/"]
@@ -79,6 +82,7 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
         .route("/source/crawl", post(source::crawl))
         .route("/document/search", get(document::search_form))
         .route("/document/search", post(document::search))
+        .route("/document/content/{id}", get(document::content))
         .route("/static/{*path}", get(static_file))
         .with_state(Arc::new(state));
     let addr = format!("0.0.0.0:{}", 8080);

@@ -1,4 +1,4 @@
-use aykroyd::{FromRow, Query, Statement};
+use aykroyd::{FromRow, Query, QueryOne, Statement};
 use serde::Serialize;
 
 #[derive(Statement)]
@@ -15,29 +15,21 @@ pub struct AddDocument<'a> {
 }
 
 #[derive(FromRow, Serialize)]
-pub struct DocumentRow {
-    pub id: String,
-    pub retrieved_date: String,
-    pub etag: Option<String>,
-    pub title: Option<String>,
-    pub content: String,
-}
+pub struct Content(pub String);
 
-#[derive(Query)]
+#[derive(QueryOne)]
 #[aykroyd(
-    row(DocumentRow),
-    text = "SELECT id, retrieved_date, etag, title, content FROM document WHERE source_id = $1"
-)]
-pub struct GetDocumentsQuery {
-    #[aykroyd(param = "$1")]
-    pub source_id: i64,
-}
+    row(Content),
+    text = "
+        SELECT content FROM document WHERE id = $1
+")]
+pub struct GetContent(pub i64);
 
 #[derive(Query)]
 #[aykroyd(
     row(SearchDocumentRow),
     text = "
-        SELECT s.url, d.retrieved_date, d.title, snippet(i.fts_document, -1, '<b>', '</b>', '...', 16) AS snippet
+        SELECT d.id, s.url, d.retrieved_date, d.title, snippet(i.fts_document, -1, '<b>', '</b>', '...', 16) AS snippet
         FROM fts_document($1) AS i
         LEFT JOIN document AS d ON d.id = i.rowid
         LEFT JOIN source AS s ON d.source_id = s.id
@@ -47,6 +39,7 @@ pub struct SearchDocuments<'a>(pub &'a str);
 
 #[derive(FromRow, Serialize)]
 pub struct SearchDocumentRow {
+    pub id: i64,
     pub url: String,
     pub retrieved_date: String,
     pub title: Option<String>,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{extract, response::Html};
 use serde::Deserialize;
 
-use crate::{serve::{AppError, AppState, template_new}, store::document::SearchDocuments};
+use crate::{serve::{AppError, AppState, template_new}, store::document::{GetContent, SearchDocuments}};
 
 #[axum::debug_handler]
 pub async fn search_form() -> Result<Html<String>, AppError> {
@@ -18,7 +18,6 @@ pub async fn search_form() -> Result<Html<String>, AppError> {
 pub struct Query {
     search: String,
 }
-
 #[axum::debug_handler]
 pub async fn search(
     extract::State(state): extract::State<Arc<AppState>>,
@@ -36,4 +35,14 @@ pub async fn search(
     let body = tera.render("document/search_result_partial.html", &context)?;
 
     Ok(Html(body))
+}
+
+#[axum::debug_handler]
+pub async fn content(
+    extract::State(state): extract::State<Arc<AppState>>,
+    extract::Path(id): extract::Path<i64>,
+) -> Result<String, AppError> {
+    let content = state.db()?.query_one(&GetContent(id))?.0;
+
+    Ok(content)
 }

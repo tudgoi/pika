@@ -1,12 +1,13 @@
 {% for doc in documents %}
 <dt>
     <div>
-        <a href="{{ doc.url }}">
+        <a href="{{ doc.url }}" target="_blank">
             {% if doc.title | length > 0 %}
             {{ doc.title }}
             {% else %}
             {{ doc.url | truncate(length=20) }}
             {% endif %}
+            ↗
         </a>
     </div>
     <div>
@@ -14,6 +15,7 @@
     </div>
 </dt>
 <dd>
+    <a href="./content/{{ doc.id }}" target="_blank">...↗</a>
     <pre>{{ doc.snippet | safe }}</pre>
 </dd>
 {% endfor %}

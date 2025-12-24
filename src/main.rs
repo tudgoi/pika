@@ -4,6 +4,7 @@ use postcard::{from_bytes, to_stdvec};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::collections::HashSet;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -38,6 +39,8 @@ enum Commands {
     },
     /// Commits all records from eav and hash table to repo table
     Commit,
+    /// Garbage collect unreferenced records from repo
+    Gc,
 }
 
 const EAV: TableDefinition<&str, &str> = TableDefinition::new("eav");
@@ -166,6 +169,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             write_txn.commit()?;
             println!("Successfully committed records to repo.");
+        }
+        Commands::Gc => {
+            let write_txn = db.begin_write()?;
+            let mut active_hashes = HashSet::new();
+            {
+                let hash_table = write_txn.open_table(HASH)?;
+                for result in hash_table.iter()? {
+                    let (_, value) = result?;
+                    active_hashes.insert(*value.value());
+                }
+            }
+
+            {
+                let mut repo_table = write_txn.open_table(REPO)?;
+                let mut to_delete = Vec::new();
+                for result in repo_table.iter()? {
+                    let (key, _) = result?;
+                    if !active_hashes.contains(key.value()) {
+                        to_delete.push(*key.value());
+                    }
+                }
+
+                for hash in to_delete {
+                    repo_table.remove(&hash)?;
+                    let hash_hex = hash.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+                    println!("Garbage collected: {}", hash_hex);
+                }
+            }
+            write_txn.commit()?;
+            println!("Garbage collection completed.");
         }
     }
 

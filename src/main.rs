@@ -4,7 +4,6 @@ use postcard::{from_bytes, to_stdvec};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::collections::HashSet;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -133,17 +132,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let hash_table = write_txn.open_table(HASH)?;
                 let mut repo_table = write_txn.open_table(REPO)?;
 
-                // Collect entries first to avoid holding borrow on eav_table while writing to repo_table
-                // Although redb allows multiple tables open, iterating one while writing another in same txn is generally fine
-                // but we need to be careful with lifetimes if we hold guards.
-                // However, the error was about access methods.
-
-                // Because we are iterating `eav_table` and need to read `hash_table` and write `repo_table`,
-                // and `redb` transaction ownership rules can be tricky with multiple open tables if not scoped perfectly,
-                // let's just make sure we are clean.
-
-                // Actually, the previous code structure was fine regarding lifetimes if methods were correct.
-
                 for result in eav_table.iter()? {
                     let (key_guard, value_guard) = result?;
                     let key = key_guard.value();
@@ -172,28 +160,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Gc => {
             let write_txn = db.begin_write()?;
-            let mut active_hashes = HashSet::new();
+            let mut to_delete = Vec::new();
             {
+                let repo_table = write_txn.open_table(REPO)?;
                 let hash_table = write_txn.open_table(HASH)?;
-                for result in hash_table.iter()? {
-                    let (_, value) = result?;
-                    active_hashes.insert(*value.value());
-                }
-            }
 
-            {
-                let mut repo_table = write_txn.open_table(REPO)?;
-                let mut to_delete = Vec::new();
-                for result in repo_table.iter()? {
-                    let (key, _) = result?;
-                    if !active_hashes.contains(key.value()) {
-                        to_delete.push(*key.value());
+                for repo_result in repo_table.iter()? {
+                    let (repo_key_result, repo_value_result) = repo_result?;
+                    let repo_hash = repo_key_result.value();
+
+                    if let Ok(record) = from_bytes::<Record>(repo_value_result.value()) {
+                        let repo_key = record.0;
+                        if let Some(hash_value) = hash_table.get(repo_key)? {
+                            if hash_value.value() != repo_hash {
+                                to_delete.push(*repo_hash);
+                            }
+                        } else {
+                            to_delete.push(*repo_hash);
+                        }
+                    } else {
+                        eprintln!(
+                            "Warning: Failed to deserialize record for hash {:?}. Skipping.",
+                            repo_hash
+                        );
                     }
                 }
-
+            }
+            {
+                let mut repo_table = write_txn.open_table(REPO)?;
                 for hash in to_delete {
                     repo_table.remove(&hash)?;
-                    let hash_hex = hash.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+                    let hash_hex = hash
+                        .iter()
+                        .map(|b| format!("{:02x}", b))
+                        .collect::<String>();
                     println!("Garbage collected: {}", hash_hex);
                 }
             }

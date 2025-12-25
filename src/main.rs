@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use redb::{Database, ReadableDatabase, ReadableTable, TableHandle};
+use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use postcard::from_bytes; // Keep from_bytes for deserializing Object::Eav in Commands::List
 use std::path::PathBuf;
 
@@ -62,11 +62,10 @@ enum Tables {
     Repo,
     Refs,
 }
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-
-    let db = Database::create(&args.db_path)?;
-    let repo = Db::new(&db); // Instantiate Repo
+    let db = Db::new(&args.db_path)?;
 
     match &args.command {
         Commands::Write {
@@ -75,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             value,
         } => {
             // Call repo.write() instead of inline logic
-            repo.write(entity, attribute, value)?;
+            db.write(entity, attribute, value)?;
             println!(
                 "Successfully wrote EAV triple ('{}', '{}', '{}') to database at: {:?}",
                 entity, attribute, value, args.db_path
@@ -83,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Read { entity, attribute } => {
             // Call repo.read() instead of inline logic
-            if let Some(read_value) = repo.read(entity, attribute)? {
+            if let Some(read_value) = db.read(entity, attribute)? {
                 println!(
                     "Read from DB: ('{}', '{}', '{}')",
                     entity, attribute, read_value
@@ -96,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::List { table_name } => {
-            let read_txn = db.begin_read()?;
+            let read_txn = db.redb.begin_read()?;
             match table_name {
                 Tables::Eav => {
                     let table = read_txn.open_table(EAV_TABLE)?;
@@ -132,7 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Ref { ref_name } => {
-            let read_txn = db.begin_read()?;
+            let read_txn = db.redb.begin_read()?;
             let refs_table = read_txn.open_table(REFS_TABLE)?;
 
             let target_ref_name = ref_name
@@ -142,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Displaying Merkle Search Tree from '{}':", target_ref_name);
 
             if let Some(mst_root_hash) = refs_table.get(target_ref_name)?.map(|guard| *guard.value()) {
-                print_mst_recursive(&db, Some(mst_root_hash))?;
+                print_mst_recursive(&db.redb, Some(mst_root_hash))?;
             } else {
                 println!("No MST root found for '{}'.", target_ref_name);
             }

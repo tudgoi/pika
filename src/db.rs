@@ -1,10 +1,11 @@
 use blake3::hash;
 use postcard::{from_bytes, to_stdvec};
-use redb::{ReadableTable, TableDefinition, Table, ReadableDatabase};
-use serde::{Deserialize, Serialize};
-use std::fmt;
 use ptree::{self, TreeItem};
+use redb::{Database, ReadableDatabase, ReadableTable, Table, TableDefinition};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::fmt;
+use std::path::Path;
 
 // --- Type Aliases ---
 pub type Entity = str;
@@ -15,7 +16,8 @@ pub type Hash = [u8; 32];
 pub type Blob = Vec<u8>; // Redefined as Vec<u8> for redb compatibility
 
 // --- Table Definitions and Constants ---
-pub const EAV_TABLE: TableDefinition<(&Entity, &Attribute), &EavValue> = TableDefinition::new("eav");
+pub const EAV_TABLE: TableDefinition<(&Entity, &Attribute), &EavValue> =
+    TableDefinition::new("eav");
 pub const REPO_TABLE: TableDefinition<Hash, Blob> = TableDefinition::new("repo");
 pub const REFS_TABLE: TableDefinition<&RefName, &Hash> = TableDefinition::new("refs");
 pub const MST_ROOT_REF_NAME: &str = "mst_root";
@@ -54,7 +56,6 @@ impl fmt::Debug for MstNode {
         )
     }
 }
-
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct MstKey {
@@ -225,13 +226,15 @@ pub fn store_eav_object_and_update_recent_ref(
     Ok(())
 }
 
-pub struct Db<'db> {
-    db: &'db redb::Database,
+pub struct Db {
+    pub redb: redb::Database,
 }
 
-impl<'db> Db<'db> {
-    pub fn new(db: &'db redb::Database) -> Self {
-        Db { db }
+impl Db {
+    pub fn new(db_path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let db = Database::create(db_path)?;
+
+        Ok(Db { redb: db })
     }
 
     pub fn write(
@@ -240,7 +243,7 @@ impl<'db> Db<'db> {
         attribute: &str,
         value: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let write_txn = self.db.begin_write()?;
+        let write_txn = self.redb.begin_write()?;
         {
             let mut eav_table = write_txn.open_table(EAV_TABLE)?;
             eav_table.insert((entity, attribute), value)?;
@@ -286,7 +289,7 @@ impl<'db> Db<'db> {
         entity: &str,
         attribute: &str,
     ) -> Result<Option<String>, Box<dyn std::error::Error>> {
-        let read_txn = self.db.begin_read()?;
+        let read_txn = self.redb.begin_read()?;
         let table = read_txn.open_table(EAV_TABLE)?;
         if let Some(read_value) = table.get(&(entity, attribute))? {
             Ok(Some(read_value.value().to_string()))
@@ -306,7 +309,11 @@ pub struct MstTreeItem<'a> {
 impl<'a> TreeItem for MstTreeItem<'a> {
     type Child = MstTreeItem<'a>;
 
-    fn write_self<W: std::io::Write>(&self, f: &mut W, _style: &ptree::Style) -> std::io::Result<()> {
+    fn write_self<W: std::io::Write>(
+        &self,
+        f: &mut W,
+        _style: &ptree::Style,
+    ) -> std::io::Result<()> {
         let node_label = format!("{:.6}...: {:?}", hex_string(&self.node_hash), self.node.key);
         write!(f, "{}", node_label)?;
         if let Some(value_hash) = self.node.value_hash {
@@ -317,8 +324,13 @@ impl<'a> TreeItem for MstTreeItem<'a> {
 
     fn children(&self) -> Cow<'_, [Self::Child]> {
         let mut children_vec = Vec::new();
-        let read_txn = self.db.begin_read().expect("Failed to begin read transaction");
-        let repo_table = read_txn.open_table(REPO_TABLE).expect("Failed to open repo table");
+        let read_txn = self
+            .db
+            .begin_read()
+            .expect("Failed to begin read transaction");
+        let repo_table = read_txn
+            .open_table(REPO_TABLE)
+            .expect("Failed to open repo table");
 
         if let Some(left_child_hash) = self.node.left_child_hash {
             if let Ok(Some(left_node)) = get_mst_node(&repo_table, &left_child_hash) {

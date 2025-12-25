@@ -1,5 +1,5 @@
 use blake3::hash;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use postcard::{from_bytes, to_stdvec};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
@@ -32,19 +32,26 @@ enum Commands {
     },
     /// Lists all key-value pairs in the database
     List {
-        /// The table to list (eav or repo)
-        #[arg(default_value = "eav")]
-        table_name: String,
+        /// The table to list
+        #[arg(default_value = "kv")]
+        table_name: Tables,
     },
-    /// Commits all records from eav and hash table to repo table
+    /// Commits all records from kv and hash table to repo table
     Commit,
     /// Garbage collect unreferenced records from repo
     Gc,
 }
 
-const EAV: TableDefinition<&str, &str> = TableDefinition::new("eav");
+#[derive(Debug, Clone, ValueEnum)]
+enum Tables {
+    Kv,
+    Repo,
+    Refs,
+}
+
+const KV: TableDefinition<&str, &str> = TableDefinition::new("kv");
 const REPO: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("repo");
-const HASH: TableDefinition<&str, &[u8; 32]> = TableDefinition::new("hash");
+const REFS: TableDefinition<&str, &[u8; 32]> = TableDefinition::new("refs");
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Record<'a>(&'a str, &'a str);
@@ -58,14 +65,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Write { key, value } => {
             let write_txn = db.begin_write()?;
             {
-                let mut table = write_txn.open_table(EAV)?;
+                let mut table = write_txn.open_table(KV)?;
                 table.insert(key.as_str(), value.as_str())?;
 
                 let record = Record(key.as_str(), value.as_str());
                 let encoded = to_stdvec(&record)?;
                 let hash = hash(&encoded);
 
-                let mut hash_table = write_txn.open_table(HASH)?;
+                let mut hash_table = write_txn.open_table(REFS)?;
                 hash_table.insert(key.as_str(), hash.as_bytes())?;
             }
             write_txn.commit()?;
@@ -76,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Read { key } => {
             let read_txn = db.begin_read()?;
-            let table = read_txn.open_table(EAV)?;
+            let table = read_txn.open_table(KV)?;
             if let Some(read_value) = table.get(key.as_str())? {
                 println!("Read from DB: ('{}', '{}')", key, read_value.value());
             } else {
@@ -85,54 +92,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::List { table_name } => {
             let read_txn = db.begin_read()?;
-            if table_name == "eav" {
-                let table = read_txn.open_table(EAV)?;
-                println!("Listing all items in 'eav':");
-                for result in table.iter()? {
-                    let (key, value) = result?;
-                    println!("('{}', '{}')", key.value(), value.value());
+            match table_name {
+                Tables::Kv => {
+                    let table = read_txn.open_table(KV)?;
+                    println!("Listing all items in 'kv':");
+                    for result in table.iter()? {
+                        let (key, value) = result?;
+                        println!("('{}', '{}')", key.value(), value.value());
+                    }
                 }
-            } else if table_name == "repo" {
-                let table = read_txn.open_table(REPO)?;
-                println!("Listing all items in 'repo':");
-                for result in table.iter()? {
-                    let (key, value) = result?;
-                    let key_hex = key
-                        .value()
-                        .iter()
-                        .map(|b| format!("{:02x}", b))
-                        .collect::<String>();
-                    let record: Record =
-                        from_bytes(value.value()).unwrap_or(Record("error", "error"));
-                    println!("('{}', '{:?}')", key_hex, record);
+                Tables::Repo => {
+                    let table = read_txn.open_table(REPO)?;
+                    println!("Listing all items in 'repo':");
+                    for result in table.iter()? {
+                        let (key, value) = result?;
+                        let key_hex = key
+                            .value()
+                            .iter()
+                            .map(|b| format!("{:02x}", b))
+                            .collect::<String>();
+                        let record: Record =
+                            from_bytes(value.value()).unwrap_or(Record("error", "error"));
+                        println!("('{}', '{:?}')", key_hex, record);
+                    }
                 }
-            } else if table_name == "hash" {
-                let table = read_txn.open_table(HASH)?;
-                println!("Listing all items in 'hash':");
-                for result in table.iter()? {
-                    let (key, value) = result?;
-                    let val_hex = value
-                        .value()
-                        .iter()
-                        .map(|b| format!("{:02x}", b))
-                        .collect::<String>();
-                    println!("('{}', '{}')", key.value(), val_hex);
+                Tables::Refs => {
+                    let table = read_txn.open_table(REFS)?;
+                    println!("Listing all items in 'hash':");
+                    for result in table.iter()? {
+                        let (key, value) = result?;
+                        let val_hex = value
+                            .value()
+                            .iter()
+                            .map(|b| format!("{:02x}", b))
+                            .collect::<String>();
+                        println!("('{}', '{}')", key.value(), val_hex);
+                    }
                 }
-            } else {
-                eprintln!(
-                    "Error: Unknown table '{}'. Available tables: 'eav', 'repo', 'hash'",
-                    table_name
-                );
             }
         }
         Commands::Commit => {
             let write_txn = db.begin_write()?;
             {
-                let eav_table = write_txn.open_table(EAV)?;
-                let hash_table = write_txn.open_table(HASH)?;
+                let kv_table = write_txn.open_table(KV)?;
+                let hash_table = write_txn.open_table(REFS)?;
                 let mut repo_table = write_txn.open_table(REPO)?;
 
-                for result in eav_table.iter()? {
+                for result in kv_table.iter()? {
                     let (key_guard, value_guard) = result?;
                     let key = key_guard.value();
                     let value = value_guard.value();
@@ -163,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut to_delete = Vec::new();
             {
                 let repo_table = write_txn.open_table(REPO)?;
-                let hash_table = write_txn.open_table(HASH)?;
+                let hash_table = write_txn.open_table(REFS)?;
 
                 for repo_result in repo_table.iter()? {
                     let (repo_key_result, repo_value_result) = repo_result?;

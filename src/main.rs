@@ -39,7 +39,7 @@ enum Commands {
         #[arg(value_enum, default_value_t = Tables::Eav)]
         table_name: Tables,
     },
-    /// Commits all records from kv and hash table to repo table
+    /// Commits all records into repo
     Commit,
     /// Garbage collect unreferenced records from repo
     Gc,
@@ -52,12 +52,22 @@ enum Tables {
     Refs,
 }
 
-const EAV: TableDefinition<(&str, &str), &str> = TableDefinition::new("eav");
-const REPO: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("repo");
-const REFS: TableDefinition<(&str, &str), &[u8; 32]> = TableDefinition::new("refs");
+type Entity = str;
+type Attribute = str;
+type EavValue = str;
+type RefName = str;
+type Hash = [u8; 32];
+type Blob = [u8];
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Record<'a>(&'a str, &'a str, &'a str);
+const EAV_TABLE: TableDefinition<(&Entity, &Attribute), &EavValue> = TableDefinition::new("eav");
+const REPO_TABLE: TableDefinition<&Hash, &Blob> = TableDefinition::new("repo");
+const REFS_TABLE: TableDefinition<&RefName, &Hash> = TableDefinition::new("refs");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+enum Object<'a> {
+    Eav(&'a str, &'a str, &'a str),
+    RefList(Vec<Hash>),
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -65,18 +75,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Database::create(&args.db_path)?;
 
     match &args.command {
-        Commands::Write { entity, attribute, value } => {
+        Commands::Write {
+            entity,
+            attribute,
+            value,
+        } => {
             let write_txn = db.begin_write()?;
             {
-                let mut table = write_txn.open_table(EAV)?;
+                let mut table = write_txn.open_table(EAV_TABLE)?;
                 table.insert((entity.as_str(), attribute.as_str()), value.as_str())?;
 
-                let record = Record(entity.as_str(), attribute.as_str(), value.as_str());
+                let record = Object::Eav(entity, attribute, value);
                 let encoded = to_stdvec(&record)?;
                 let hash = hash(&encoded);
+                let hash_value = hash.as_bytes();
 
-                let mut hash_table = write_txn.open_table(REFS)?;
-                hash_table.insert((entity.as_str(), attribute.as_str()), hash.as_bytes())?;
+                let mut repo_table = write_txn.open_table(REPO_TABLE)?;
+                if repo_table.get(&hash_value)?.is_none() {
+                    repo_table.insert(hash_value, encoded.as_slice())?;
+                }
+
+                let mut refs_table = write_txn.open_table(REFS_TABLE)?;
+                refs_table.insert("recent", hash_value)?;
             }
             write_txn.commit()?;
             println!(
@@ -86,7 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Read { entity, attribute } => {
             let read_txn = db.begin_read()?;
-            let table = read_txn.open_table(EAV)?;
+            let table = read_txn.open_table(EAV_TABLE)?;
             if let Some(read_value) = table.get(&(entity.as_str(), attribute.as_str()))? {
                 println!(
                     "Read from DB: ('{}', '{}', '{}')",
@@ -95,15 +115,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     read_value.value()
                 );
             } else {
-                println!("EAV triple ('{}', '{}') not found in database.", entity, attribute);
+                println!(
+                    "EAV triple ('{}', '{}') not found in database.",
+                    entity, attribute
+                );
             }
         }
         Commands::List { table_name } => {
             let read_txn = db.begin_read()?;
             match table_name {
                 Tables::Eav => {
-                    let table = read_txn.open_table(EAV)?;
-                    println!("Listing all items in {}:", EAV.name());
+                    let table = read_txn.open_table(EAV_TABLE)?;
+                    println!("Listing all items in {}:", EAV_TABLE.name());
                     for result in table.iter()? {
                         let (key_guard, value_guard) = result?;
                         let (entity, attribute) = key_guard.value();
@@ -111,113 +134,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Tables::Repo => {
-                    let table = read_txn.open_table(REPO)?;
-                    println!("Listing all items in 'repo':");
+                    let table = read_txn.open_table(REPO_TABLE)?;
+                    println!("Listing all items in {}:", REPO_TABLE.name());
                     for result in table.iter()? {
-                        let (key, value) = result?;
-                        let key_hex = key
+                        let (key_guard, value_guard) = result?;
+                        let key_hex = key_guard
                             .value()
                             .iter()
                             .map(|b| format!("{:02x}", b))
                             .collect::<String>();
-                        // TODO avoid this hack for displaying error
-                        let record: Record =
-                            from_bytes(value.value()).unwrap_or(Record("error", "error", "error"));
-                        println!("('{}', '{:?}')", key_hex, record);
+                        match from_bytes::<Object>(value_guard.value()) {
+                            Ok(obj) => println!("('{}', '{:?}')", key_hex, obj),
+                            Err(e) => println!("Could not deserialize for {}: {}", key_hex, e),
+                        }
                     }
                 }
                 Tables::Refs => {
-                    let table = read_txn.open_table(REFS)?;
-                    println!("Listing all items in 'hash':");
+                    let table = read_txn.open_table(REFS_TABLE)?;
+                    println!("Listing all items in {}:", REFS_TABLE.name());
                     for result in table.iter()? {
                         let (key_guard, value_guard) = result?;
-                        let (entity, attribute) = key_guard.value();
+                        let ref_name = key_guard.value();
                         let val_hex = value_guard
                             .value()
                             .iter()
                             .map(|b| format!("{:02x}", b))
                             .collect::<String>();
-                        println!("('{}', '{}', '{}')", entity, attribute, val_hex);
+                        println!("('{}', '{}')", ref_name, val_hex);
                     }
                 }
             }
         }
         Commands::Commit => {
-            let write_txn = db.begin_write()?;
-            {
-                let kv_table = write_txn.open_table(EAV)?;
-                let hash_table = write_txn.open_table(REFS)?;
-                let mut repo_table = write_txn.open_table(REPO)?;
-
-                for result in kv_table.iter()? {
-                    let (key_guard, value_guard) = result?;
-                    let (entity, attribute) = key_guard.value();
-                    let value = value_guard.value();
-
-                    let record = Record(entity, attribute, value);
-                    let encoded = to_stdvec(&record)?;
-
-                    // We expect the hash to be in the HASH table as per Write command logic
-                    if let Some(hash_guard) = hash_table.get(&(entity, attribute))? {
-                        let hash_val = hash_guard.value();
-
-                        if repo_table.get(hash_val)?.is_none() {
-                            repo_table.insert(hash_val, encoded.as_slice())?;
-                        }
-                    } else {
-                        eprintln!(
-                            "Warning: No hash found for EAV ('{}', '{}') in HASH table. Skipping repo update.",
-                            entity, attribute
-                        );
-                    }
-                }
-            }
-            write_txn.commit()?;
-            println!("Successfully committed records to repo.");
+            println!("Not yet implemented");
         }
         Commands::Gc => {
-            let write_txn = db.begin_write()?;
-            let mut to_delete = Vec::new();
-            {
-                let repo_table = write_txn.open_table(REPO)?;
-                let hash_table = write_txn.open_table(REFS)?;
-
-                for repo_result in repo_table.iter()? {
-                    let (repo_key_result, repo_value_result) = repo_result?;
-                    let repo_hash = repo_key_result.value();
-
-                    if let Ok(record) = from_bytes::<Record>(repo_value_result.value()) {
-                        let Record(entity, attribute, _) = record;
-                        if let Some(hash_value) = hash_table.get(&(entity, attribute))? {
-                            if hash_value.value() != repo_hash {
-                                to_delete.push(*repo_hash);
-                            }
-                        } else {
-                            to_delete.push(*repo_hash);
-                        }
-                    } else {
-                        eprintln!(
-                            "Warning: Failed to deserialize record for hash {:?}. Skipping.",
-                            repo_hash
-                        );
-                    }
-                }
-            }
-            {
-                let mut repo_table = write_txn.open_table(REPO)?;
-                for hash in to_delete {
-                    repo_table.remove(&hash)?;
-                    let hash_hex = hash
-                        .iter()
-                        .map(|b| format!("{:02x}", b))
-                        .collect::<String>();
-                    println!("Garbage collected: {}", hash_hex);
-                }
-            }
-            write_txn.commit()?;
-            println!("Garbage collection completed.");
+            println!("Not yet implemented");
         }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_record_serialization_deserialization() {
+        let original_record = Object::Eav("entity1", "attribute1", "value1");
+
+        let encoded = to_stdvec(&original_record).expect("Failed to serialize record");
+        let decoded_record: Object = from_bytes(&encoded).expect("Failed to deserialize record");
+
+        assert_eq!(original_record, decoded_record);
+    }
 }

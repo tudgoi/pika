@@ -3,6 +3,7 @@ use postcard::{from_bytes, to_stdvec};
 use redb::{ReadableTable, TableDefinition, Table, ReadableDatabase};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use termtree::Tree;
 
 // --- Type Aliases ---
 pub type Entity = str;
@@ -294,25 +295,40 @@ impl<'db> Db<'db> {
     }
 }
 
+pub fn build_mst_tree_recursive(
+    repo_table: &impl ReadableTable<Hash, Vec<u8>>,
+    node_hash: Option<Hash>,
+) -> Result<Tree<String>, Box<dyn std::error::Error>> {
+    if let Some(hash) = node_hash {
+        let node = get_mst_node(repo_table, &hash)?.expect("Node should exist");
+        let node_label = format!("Node ({}): {:?}", hex_string(&hash), node.key);
+
+        let mut children_trees = Vec::new();
+
+        if let Some(left_child_hash) = node.left_child_hash {
+            children_trees.push(build_mst_tree_recursive(repo_table, Some(left_child_hash))?);
+        }
+
+        if let Some(right_child_hash) = node.right_child_hash {
+            children_trees.push(build_mst_tree_recursive(repo_table, Some(right_child_hash))?);
+        }
+
+        if let Some(value_hash) = node.value_hash {
+            children_trees.push(Tree::new(format!("Value: {}", hex_string(&value_hash))));
+        }
+
+        Ok(Tree::new(node_label).with_leaves(children_trees))
+    } else {
+        Ok(Tree::new("None".to_string()))
+    }
+}
+
 pub fn print_mst_recursive(
     repo_table: &impl ReadableTable<Hash, Vec<u8>>,
     node_hash: Option<Hash>,
-    indent: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let prefix = "  ".repeat(indent);
-    if let Some(hash) = node_hash {
-        let node = get_mst_node(repo_table, &hash)?.expect("Node should exist");
-        println!("{}Node ({}): {:?}", prefix, hex_string(&hash), node);
-
-        if let Some(left_child_hash) = node.left_child_hash {
-            print_mst_recursive(repo_table, Some(left_child_hash), indent + 1)?;
-        }
-        if let Some(right_child_hash) = node.right_child_hash {
-            print_mst_recursive(repo_table, Some(right_child_hash), indent + 1)?;
-        }
-    } else {
-        println!("{}None", prefix);
-    }
+    let tree = build_mst_tree_recursive(repo_table, node_hash)?;
+    println!("{}", tree);
     Ok(())
 }
 

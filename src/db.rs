@@ -3,7 +3,8 @@ use postcard::{from_bytes, to_stdvec};
 use redb::{ReadableTable, TableDefinition, Table, ReadableDatabase};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use termtree::Tree;
+use ptree::{self, TreeItem};
+use std::borrow::Cow;
 
 // --- Type Aliases ---
 pub type Entity = str;
@@ -295,40 +296,70 @@ impl<'db> Db<'db> {
     }
 }
 
-pub fn build_mst_tree_recursive(
-    repo_table: &impl ReadableTable<Hash, Vec<u8>>,
-    node_hash: Option<Hash>,
-) -> Result<Tree<String>, Box<dyn std::error::Error>> {
-    if let Some(hash) = node_hash {
-        let node = get_mst_node(repo_table, &hash)?.expect("Node should exist");
-        let node_label = format!("Node ({}): {:?}", hex_string(&hash), node.key);
+#[derive(Clone)]
+pub struct MstTreeItem<'a> {
+    node_hash: Hash,
+    node: MstNode,
+    db: &'a redb::Database,
+}
 
-        let mut children_trees = Vec::new();
+impl<'a> TreeItem for MstTreeItem<'a> {
+    type Child = MstTreeItem<'a>;
 
-        if let Some(left_child_hash) = node.left_child_hash {
-            children_trees.push(build_mst_tree_recursive(repo_table, Some(left_child_hash))?);
+    fn write_self<W: std::io::Write>(&self, f: &mut W, _style: &ptree::Style) -> std::io::Result<()> {
+        let node_label = format!("{:.6}...: {:?}", hex_string(&self.node_hash), self.node.key);
+        write!(f, "{}", node_label)?;
+        if let Some(value_hash) = self.node.value_hash {
+            write!(f, " {:.6}...", hex_string(&value_hash))?;
         }
+        Ok(())
+    }
 
-        if let Some(right_child_hash) = node.right_child_hash {
-            children_trees.push(build_mst_tree_recursive(repo_table, Some(right_child_hash))?);
+    fn children(&self) -> Cow<'_, [Self::Child]> {
+        let mut children_vec = Vec::new();
+        let read_txn = self.db.begin_read().expect("Failed to begin read transaction");
+        let repo_table = read_txn.open_table(REPO_TABLE).expect("Failed to open repo table");
+
+        if let Some(left_child_hash) = self.node.left_child_hash {
+            if let Ok(Some(left_node)) = get_mst_node(&repo_table, &left_child_hash) {
+                children_vec.push(MstTreeItem {
+                    node_hash: left_child_hash,
+                    node: left_node,
+                    db: self.db,
+                });
+            }
         }
-
-        if let Some(value_hash) = node.value_hash {
-            children_trees.push(Tree::new(format!("Value: {}", hex_string(&value_hash))));
+        if let Some(right_child_hash) = self.node.right_child_hash {
+            if let Ok(Some(right_node)) = get_mst_node(&repo_table, &right_child_hash) {
+                children_vec.push(MstTreeItem {
+                    node_hash: right_child_hash,
+                    node: right_node,
+                    db: self.db,
+                });
+            }
         }
-
-        Ok(Tree::new(node_label).with_leaves(children_trees))
-    } else {
-        Ok(Tree::new("None".to_string()))
+        Cow::Owned(children_vec)
     }
 }
 
 pub fn print_mst_recursive(
-    repo_table: &impl ReadableTable<Hash, Vec<u8>>,
+    db: &redb::Database,
     node_hash: Option<Hash>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let tree = build_mst_tree_recursive(repo_table, node_hash)?;
-    println!("{}", tree);
+    if let Some(hash) = node_hash {
+        let read_txn = db.begin_read()?;
+        let repo_table = read_txn.open_table(REPO_TABLE)?;
+        let node = get_mst_node(&repo_table, &hash)?.expect("Node should exist");
+
+        let mst_tree_item = MstTreeItem {
+            node_hash: hash,
+            node: node,
+            db: db,
+        };
+        ptree::print_tree(&mst_tree_item)?;
+    } else {
+        println!("No MST root found.");
+    }
     Ok(())
 }
 

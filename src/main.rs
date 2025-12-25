@@ -133,7 +133,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Ref { ref_name } => {
             let read_txn = db.begin_read()?;
-            let repo_table = read_txn.open_table(REPO_TABLE)?;
             let refs_table = read_txn.open_table(REFS_TABLE)?;
 
             let target_ref_name = ref_name
@@ -143,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Displaying Merkle Search Tree from '{}':", target_ref_name);
 
             if let Some(mst_root_hash) = refs_table.get(target_ref_name)?.map(|guard| *guard.value()) {
-                print_mst_recursive(&repo_table, Some(mst_root_hash))?;
+                print_mst_recursive(&db, Some(mst_root_hash))?;
             } else {
                 println!("No MST root found for '{}'.", target_ref_name);
             }

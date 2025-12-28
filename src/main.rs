@@ -1,14 +1,16 @@
+mod db;
+mod mst;
+
+use crate::{
+    db::{Attribute, EavValue, Entity, print_mst_recursive},
+    mst::{MstNode, hex_string},
+};
 use clap::{Parser, Subcommand, ValueEnum};
-use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use postcard::from_bytes; // Keep from_bytes for deserializing Object::Eav in Commands::List
+use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use std::path::PathBuf;
 
-mod db;
-use db::{
-    EAV_TABLE, REPO_TABLE, REFS_TABLE, MST_ROOT_REF_NAME,
-    Object, Db,
-    hex_string, print_mst_recursive
-};
+use db::{Db, EAV_TABLE, MST_ROOT_REF_NAME, REFS_TABLE, REPO_TABLE};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -112,8 +114,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for result in table.iter()? {
                         let (key_guard, value_guard) = result?;
                         let key_hex = hex_string(&key_guard.value());
-                        match from_bytes::<Object>(value_guard.value().as_slice()) {
-                            Ok(obj) => println!("('{}', '{:?}')", key_hex, obj),
+                        match from_bytes::<MstNode<(&Entity, &Attribute), &EavValue>>(
+                            value_guard.value().as_slice(),
+                        ) {
+                            Ok(node) => println!("('{}', '{:?}')", key_hex, node),
                             Err(e) => println!("Could not deserialize for {}: {}", key_hex, e),
                         }
                     }
@@ -134,14 +138,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let read_txn = db.redb.begin_read()?;
             let refs_table = read_txn.open_table(REFS_TABLE)?;
 
-            let target_ref_name = ref_name
-                .as_deref()
-                .unwrap_or(MST_ROOT_REF_NAME);
+            let target_ref_name = ref_name.as_deref().unwrap_or(MST_ROOT_REF_NAME);
 
-            println!("Displaying Merkle Search Tree from '{}':", target_ref_name);
-
-            if let Some(mst_root_hash) = refs_table.get(target_ref_name)?.map(|guard| *guard.value()) {
-                print_mst_recursive(&db.redb, Some(mst_root_hash))?;
+            println!("Displaying Merkle Search Tree:");
+            if let Some(mst_root_hash) =
+                refs_table.get(target_ref_name)?.map(|guard| *guard.value())
+            {
+                print_mst_recursive(&db.redb, mst_root_hash)?;
             } else {
                 println!("No MST root found for '{}'.", target_ref_name);
             }

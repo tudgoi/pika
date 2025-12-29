@@ -61,6 +61,8 @@ enum Commands {
     Commit,
     /// Garbage collect unreferenced records from repo
     Gc,
+    /// Displays overhead stats
+    Stat,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -72,6 +74,11 @@ enum Tables {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    if matches!(args.command, Commands::Stat) && !args.db_path.exists() {
+        return Err(format!("Database file does not exist: {:?}", args.db_path).into());
+    }
+
     let db = Db::new(&args.db_path, args.engine)?;
 
     match &args.command {
@@ -154,6 +161,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 println!("No root found for '{}'.", target_ref_name);
             }
+        }
+        Commands::Stat => {
+            db.stat()?;
         }
         Commands::Commit => {
             println!("Not yet implemented");

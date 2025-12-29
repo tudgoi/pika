@@ -114,6 +114,53 @@ impl Db {
             Ok(None)
         }
     }
+
+    pub fn stat(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let read_txn = self.redb.begin_read()?;
+
+        let mut total_user_bytes: u64 = 0;
+        // The EAV table might not be populated if only checking structural overhead of a fresh repo?
+        // But write() populates both.
+
+        if let Ok(eav_table) = read_txn.open_table(EAV_TABLE) {
+            for result in eav_table.iter()? {
+                let (key, value) = result?;
+                let (entity, attribute) = key.value();
+                total_user_bytes += entity.len() as u64;
+                total_user_bytes += attribute.len() as u64;
+                total_user_bytes += value.value().len() as u64;
+            }
+        }
+
+        let mut total_repo_bytes: u64 = 0;
+        if let Ok(repo_table) = read_txn.open_table(REPO_TABLE) {
+            for result in repo_table.iter()? {
+                let (key, value) = result?;
+                total_repo_bytes += key.value().len() as u64;
+                total_repo_bytes += value.value().len() as u64;
+            }
+        }
+
+        println!("User Data (EAV): {} bytes", total_user_bytes);
+        println!("Repo Data (Nodes): {} bytes", total_repo_bytes);
+
+        if total_repo_bytes >= total_user_bytes {
+            println!("Overhead: {} bytes", total_repo_bytes - total_user_bytes);
+        } else {
+            // Should not happen if repo contains all data + structure, unless EAV has data not in Repo?
+            // Or if compression was involved (not here).
+            println!(
+                "Overhead: -{} bytes (Repo is smaller?)",
+                total_user_bytes - total_repo_bytes
+            );
+        }
+        
+        if total_user_bytes > 0 {
+             println!("Overhead Ratio: {:.2}x", total_repo_bytes as f64 / total_user_bytes as f64);
+        }
+
+        Ok(())
+    }
 }
 
 pub fn print_mst_recursive(

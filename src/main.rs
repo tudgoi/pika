@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use std::path::PathBuf;
 
-use db::{Db, EAV_TABLE, MST_ROOT_REF_NAME, PT_ROOT_REF_NAME, REFS_TABLE, REPO_TABLE, Engine};
+use db::{Db, EAV_TABLE, ROOT_REF_NAME, REFS_TABLE, REPO_TABLE, Engine};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -72,7 +72,7 @@ enum Tables {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let db = Db::new(&args.db_path)?;
+    let db = Db::new(&args.db_path, args.engine)?;
 
     match &args.command {
         Commands::Write {
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             value,
         } => {
             // Call repo.write() instead of inline logic
-            db.write(entity, attribute, value, args.engine)?;
+            db.write(entity, attribute, value)?;
             println!(
                 "Successfully wrote EAV triple ('{}', '{}', '{}') to database at: {:?} using {:?}",
                 entity, attribute, value, args.db_path, args.engine
@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Read { entity, attribute } => {
             // Call repo.read() instead of inline logic
-            if let Some(read_value) = db.read(entity, attribute, args.engine)? {
+            if let Some(read_value) = db.read(entity, attribute)? {
                 println!(
                     "Read from DB: ('{}', '{}', '{}')",
                     entity, attribute, read_value
@@ -141,10 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let read_txn = db.redb.begin_read()?;
             let refs_table = read_txn.open_table(REFS_TABLE)?;
 
-            let target_ref_name = ref_name.as_deref().unwrap_or(match args.engine {
-                Engine::Mst => MST_ROOT_REF_NAME,
-                Engine::Pt => PT_ROOT_REF_NAME,
-            });
+            let target_ref_name = ref_name.as_deref().unwrap_or(ROOT_REF_NAME);
 
             println!("Displaying Tree for '{}':", target_ref_name);
             if let Some(root_hash) =

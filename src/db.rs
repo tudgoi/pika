@@ -18,8 +18,7 @@ pub const EAV_TABLE: TableDefinition<(&Entity, &Attribute), &EavValue> =
     TableDefinition::new("eav");
 pub const REPO_TABLE: TableDefinition<Hash, Blob> = TableDefinition::new("repo");
 pub const REFS_TABLE: TableDefinition<&RefName, &Hash> = TableDefinition::new("refs");
-pub const MST_ROOT_REF_NAME: &str = "mst_root";
-pub const PT_ROOT_REF_NAME: &str = "pt_root";
+pub const ROOT_REF_NAME: &str = "root";
 
 #[derive(Debug, Clone, ValueEnum, Copy)]
 pub enum Engine {
@@ -29,13 +28,14 @@ pub enum Engine {
 
 pub struct Db {
     pub redb: redb::Database,
+    pub engine: Engine,
 }
 
 impl Db {
-    pub fn new(db_path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(db_path: &Path, engine: Engine) -> Result<Self, Box<dyn std::error::Error>> {
         let db = Database::create(db_path)?;
 
-        Ok(Db { redb: db })
+        Ok(Db { redb: db, engine })
     }
 
     pub fn write(
@@ -43,7 +43,6 @@ impl Db {
         entity: &str,
         attribute: &str,
         value: &str,
-        engine: Engine,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let write_txn = self.redb.begin_write()?;
         {
@@ -55,11 +54,11 @@ impl Db {
             let mut refs_table = write_txn.open_table(REFS_TABLE)?;
             let mut repo_table = write_txn.open_table(REPO_TABLE)?; // Open as mutable
 
-            match engine {
+            match self.engine {
                 Engine::Mst => {
                     let new_root_ref = {
                         let mut node: MstNode<(String, String), String> =
-                            match refs_table.get(MST_ROOT_REF_NAME)? {
+                            match refs_table.get(ROOT_REF_NAME)? {
                                 Some(root_ref) => MstNode::load(&repo_table, root_ref.value())?,
                                 None => MstNode::new(),
                             };
@@ -69,12 +68,12 @@ impl Db {
                             String::from(value),
                         )?
                     };
-                    refs_table.insert(MST_ROOT_REF_NAME, &new_root_ref)?;
+                    refs_table.insert(ROOT_REF_NAME, &new_root_ref)?;
                 }
                 Engine::Pt => {
                     let mut current_refs = {
                         let node: PtNode<(String, String), String> =
-                            match refs_table.get(PT_ROOT_REF_NAME)? {
+                            match refs_table.get(ROOT_REF_NAME)? {
                                 Some(root_ref) => PtNode::load(&repo_table, root_ref.value())?,
                                 None => PtNode::new(),
                             };
@@ -93,7 +92,7 @@ impl Db {
                     }
 
                     if let Some(PtItem::Ref(_, hash)) = current_refs.first() {
-                        refs_table.insert(PT_ROOT_REF_NAME, hash)?;
+                        refs_table.insert(ROOT_REF_NAME, hash)?;
                     }
                 }
             }
@@ -106,7 +105,6 @@ impl Db {
         &self,
         entity: &str,
         attribute: &str,
-        _engine: Engine,
     ) -> Result<Option<String>, Box<dyn std::error::Error>> {
         let read_txn = self.redb.begin_read()?;
         let table = read_txn.open_table(EAV_TABLE)?;

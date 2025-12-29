@@ -1,22 +1,27 @@
 mod db;
 mod mst;
+mod pt;
 
 use crate::{
-    db::{Attribute, EavValue, Entity, print_mst_recursive},
-    mst::{MstNode, hex_string},
+    db::{print_mst_recursive},
+    mst::{hex_string},
+    pt::{print_pt_recursive},
 };
 use clap::{Parser, Subcommand, ValueEnum};
-use postcard::from_bytes; // Keep from_bytes for deserializing Object::Eav in Commands::List
 use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use std::path::PathBuf;
 
-use db::{Db, EAV_TABLE, MST_ROOT_REF_NAME, REFS_TABLE, REPO_TABLE};
+use db::{Db, EAV_TABLE, MST_ROOT_REF_NAME, PT_ROOT_REF_NAME, REFS_TABLE, REPO_TABLE, Engine};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Path to the redb database file
     db_path: PathBuf,
+
+    /// Storage engine to use
+    #[arg(short, long, value_enum, default_value_t = Engine::Mst)]
+    engine: Engine,
 
     #[command(subcommand)]
     command: Commands,
@@ -48,7 +53,7 @@ enum Commands {
     },
     /// Displays the Merkle Search Tree from mst_root
     Ref {
-        /// The name of the reference to display. Defaults to MST_ROOT_REF_NAME if not provided.
+        /// The name of the reference to display. Defaults to root ref for selected engine.
         #[arg(short, long)]
         ref_name: Option<String>,
     },
@@ -76,15 +81,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             value,
         } => {
             // Call repo.write() instead of inline logic
-            db.write(entity, attribute, value)?;
+            db.write(entity, attribute, value, args.engine)?;
             println!(
-                "Successfully wrote EAV triple ('{}', '{}', '{}') to database at: {:?}",
-                entity, attribute, value, args.db_path
+                "Successfully wrote EAV triple ('{}', '{}', '{}') to database at: {:?} using {:?}",
+                entity, attribute, value, args.db_path, args.engine
             );
         }
         Commands::Read { entity, attribute } => {
             // Call repo.read() instead of inline logic
-            if let Some(read_value) = db.read(entity, attribute)? {
+            if let Some(read_value) = db.read(entity, attribute, args.engine)? {
                 println!(
                     "Read from DB: ('{}', '{}', '{}')",
                     entity, attribute, read_value
@@ -114,12 +119,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for result in table.iter()? {
                         let (key_guard, value_guard) = result?;
                         let key_hex = hex_string(&key_guard.value());
-                        match from_bytes::<MstNode<(&Entity, &Attribute), &EavValue>>(
-                            value_guard.value().as_slice(),
-                        ) {
-                            Ok(node) => println!("('{}', '{:?}')", key_hex, node),
-                            Err(e) => println!("Could not deserialize for {}: {}", key_hex, e),
-                        }
+                        // Try to deserialize as MstNode first, then PtNode, or just print hex
+                        // Ideally we would know the type, but Repo mixes types.
+                        // We can just print the blob size or raw hex.
+                        println!("('{}', Blob[{} bytes])", key_hex, value_guard.value().len());
                     }
                 }
                 Tables::Refs => {
@@ -138,15 +141,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let read_txn = db.redb.begin_read()?;
             let refs_table = read_txn.open_table(REFS_TABLE)?;
 
-            let target_ref_name = ref_name.as_deref().unwrap_or(MST_ROOT_REF_NAME);
+            let target_ref_name = ref_name.as_deref().unwrap_or(match args.engine {
+                Engine::Mst => MST_ROOT_REF_NAME,
+                Engine::Pt => PT_ROOT_REF_NAME,
+            });
 
-            println!("Displaying Merkle Search Tree:");
-            if let Some(mst_root_hash) =
+            println!("Displaying Tree for '{}':", target_ref_name);
+            if let Some(root_hash) =
                 refs_table.get(target_ref_name)?.map(|guard| *guard.value())
             {
-                print_mst_recursive(&db.redb, mst_root_hash)?;
+                match args.engine {
+                    Engine::Mst => print_mst_recursive(&db.redb, root_hash)?,
+                    Engine::Pt => print_pt_recursive(&db.redb, root_hash)?,
+                }
             } else {
-                println!("No MST root found for '{}'.", target_ref_name);
+                println!("No root found for '{}'.", target_ref_name);
             }
         }
         Commands::Commit => {

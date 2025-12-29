@@ -2,6 +2,8 @@ use crate::mst::Hash;
 use crate::mst::MstItem;
 use crate::mst::MstNode;
 use crate::mst::MstTreeItem;
+use crate::pt::{PtItem, PtNode};
+use clap::ValueEnum;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::path::Path;
 
@@ -17,6 +19,13 @@ pub const EAV_TABLE: TableDefinition<(&Entity, &Attribute), &EavValue> =
 pub const REPO_TABLE: TableDefinition<Hash, Blob> = TableDefinition::new("repo");
 pub const REFS_TABLE: TableDefinition<&RefName, &Hash> = TableDefinition::new("refs");
 pub const MST_ROOT_REF_NAME: &str = "mst_root";
+pub const PT_ROOT_REF_NAME: &str = "pt_root";
+
+#[derive(Debug, Clone, ValueEnum, Copy)]
+pub enum Engine {
+    Mst,
+    Pt,
+}
 
 pub struct Db {
     pub redb: redb::Database,
@@ -34,6 +43,7 @@ impl Db {
         entity: &str,
         attribute: &str,
         value: &str,
+        engine: Engine,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let write_txn = self.redb.begin_write()?;
         {
@@ -43,22 +53,50 @@ impl Db {
 
             // Update repo table
             let mut refs_table = write_txn.open_table(REFS_TABLE)?;
-            let new_root_ref = {
-                let mut repo_table = write_txn.open_table(REPO_TABLE)?; // Open as mutable
+            let mut repo_table = write_txn.open_table(REPO_TABLE)?; // Open as mutable
 
-                let mut node: MstNode<(String, String), String> =
-                    match refs_table.get(MST_ROOT_REF_NAME)? {
-                        Some(root_ref) => MstNode::load(&repo_table, root_ref.value())?,
-                        None => MstNode::new(),
+            match engine {
+                Engine::Mst => {
+                    let new_root_ref = {
+                        let mut node: MstNode<(String, String), String> =
+                            match refs_table.get(MST_ROOT_REF_NAME)? {
+                                Some(root_ref) => MstNode::load(&repo_table, root_ref.value())?,
+                                None => MstNode::new(),
+                            };
+                        node.upsert(
+                            &mut repo_table,
+                            (String::from(entity), String::from(attribute)),
+                            String::from(value),
+                        )?
                     };
-                // Mst::upsert now takes mutable repo_table
-                node.upsert(
-                    &mut repo_table, // Pass mutable repo_table
-                    (String::from(entity), String::from(attribute)),
-                    String::from(value),
-                )?
-            };
-            refs_table.insert(MST_ROOT_REF_NAME, &new_root_ref)?;
+                    refs_table.insert(MST_ROOT_REF_NAME, &new_root_ref)?;
+                }
+                Engine::Pt => {
+                    let mut current_refs = {
+                        let node: PtNode<(String, String), String> =
+                            match refs_table.get(PT_ROOT_REF_NAME)? {
+                                Some(root_ref) => PtNode::load(&repo_table, root_ref.value())?,
+                                None => PtNode::new(),
+                            };
+                        node.upsert(
+                            &mut repo_table,
+                            (String::from(entity), String::from(attribute)),
+                            String::from(value),
+                        )?
+                    };
+
+                    // Prolly Tree root management: 
+                    // If upsert returned multiple refs, we must continue chunking up
+                    // until we have a single root node.
+                    while current_refs.len() > 1 {
+                        current_refs = PtNode::chunk_and_save(&mut repo_table, current_refs)?;
+                    }
+
+                    if let Some(PtItem::Ref(_, hash)) = current_refs.first() {
+                        refs_table.insert(PT_ROOT_REF_NAME, hash)?;
+                    }
+                }
+            }
         }
         write_txn.commit()?;
         Ok(())
@@ -68,6 +106,7 @@ impl Db {
         &self,
         entity: &str,
         attribute: &str,
+        _engine: Engine,
     ) -> Result<Option<String>, Box<dyn std::error::Error>> {
         let read_txn = self.redb.begin_read()?;
         let table = read_txn.open_table(EAV_TABLE)?;

@@ -17,16 +17,18 @@ struct Args {
     /// Path to the redb database file
     db_path: PathBuf,
 
-    /// Storage engine to use
-    #[arg(short, long, value_enum, default_value_t = Engine::Mst)]
-    engine: Engine,
-
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Initialize the database
+    Init {
+        /// Storage engine to use
+        #[arg(short, long, value_enum, default_value_t = Engine::Mst)]
+        engine: Engine,
+    },
     /// Writes a key-value pair to the database
     Write {
         /// The entity
@@ -78,13 +80,23 @@ enum Tables {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
+    if let Commands::Init { engine } = args.command {
+        Db::init(&args.db_path, engine)?;
+        println!(
+            "Initialized database at {:?} with engine {:?}",
+            args.db_path, engine
+        );
+        return Ok(());
+    }
+
     if matches!(args.command, Commands::Stat) && !args.db_path.exists() {
         return Err(format!("Database file does not exist: {:?}", args.db_path).into());
     }
 
-    let db = Db::new(&args.db_path, args.engine)?;
+    let db = Db::open(&args.db_path)?;
 
     match &args.command {
+        Commands::Init { .. } => unreachable!(),
         Commands::Write {
             entity,
             attribute,
@@ -94,7 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             db.write(entity, attribute, value)?;
             println!(
                 "Successfully wrote EAV triple ('{}', '{}', '{}') to database at: {:?} using {:?}",
-                entity, attribute, value, args.db_path, args.engine
+                entity, attribute, value, args.db_path, db.engine
             );
         }
         Commands::Read { entity, attribute } => {

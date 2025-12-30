@@ -21,9 +21,10 @@ pub const EAV_TABLE: TableDefinition<(&Entity, &Attribute), &EavValue> =
     TableDefinition::new("eav");
 pub const REPO_TABLE: TableDefinition<Hash, Blob> = TableDefinition::new("repo");
 pub const REFS_TABLE: TableDefinition<&RefName, &Hash> = TableDefinition::new("refs");
+pub const OPTIONS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("options");
 pub const ROOT_REF_NAME: &str = "root";
 
-#[derive(Debug, Clone, ValueEnum, Copy)]
+#[derive(Debug, Clone, ValueEnum, Copy, PartialEq)]
 pub enum Engine {
     Mst,
     Pt,
@@ -51,6 +52,9 @@ pub enum DbError {
 
     #[error("IO error")]
     IoError(#[from] std::io::Error),
+
+    #[error("Database not initialized: {0}")]
+    NotInitialized(String),
 }
 
 pub struct Db {
@@ -59,8 +63,51 @@ pub struct Db {
 }
 
 impl Db {
-    pub fn new(db_path: &Path, engine: Engine) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn init(db_path: &Path, engine: Engine) -> Result<Self, Box<dyn std::error::Error>> {
         let db = Database::create(db_path)?;
+        let write_txn = db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(OPTIONS_TABLE)?;
+            let engine_str = match engine {
+                Engine::Mst => "Mst",
+                Engine::Pt => "Pt",
+            };
+            table.insert("engine", engine_str)?;
+        }
+        write_txn.commit()?;
+
+        Ok(Db { redb: db, engine })
+    }
+
+    pub fn open(db_path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let db = Database::create(db_path)?;
+        let read_txn = db.begin_read()?;
+        
+        // Check if options table exists and has engine
+        // We use catch_unwind or just try to open. 
+        // If the table was never created, open_table might succeed (returning empty) or fail?
+        // In redb, open_table usually succeeds if the definition matches or it's new?
+        // Wait, for read_txn, open_table returns error if table does not exist?
+        // Documentation says: "Returns TableError::TableDoesNotExist if the table does not exist."
+        
+        let engine = match read_txn.open_table(OPTIONS_TABLE) {
+            Ok(table) => {
+                if let Some(val) = table.get("engine")? {
+                    let s = val.value();
+                    match s {
+                        "Mst" => Engine::Mst,
+                        "Pt" => Engine::Pt,
+                        _ => return Err(DbError::NotInitialized(format!("Unknown engine type: {}", s)).into()),
+                    }
+                } else {
+                    return Err(DbError::NotInitialized("Engine option missing".to_string()).into());
+                }
+            }
+            Err(redb::TableError::TableDoesNotExist(_)) => {
+                 return Err(DbError::NotInitialized("Options table missing".to_string()).into());
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         Ok(Db { redb: db, engine })
     }

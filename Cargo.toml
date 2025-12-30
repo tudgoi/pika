@@ -11,6 +11,10 @@ redb = "3.1.0"
 serde = { version = "1.0.228", features = ["derive"] }
 ptree = "0.4.0"
 thiserror = "2.0.17"
+iroh = { version = "0.95.1", features = ["discovery-local-network"] }
+anyhow = "1.0.100"
+tokio = "1.48.0"
+futures = "0.3.31"
 
 [dev-dependencies]
 tempfile = "3.24.0"

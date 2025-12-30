@@ -1,10 +1,11 @@
 mod db;
 mod mst;
 mod pt;
+mod serve;
+mod sync;
 
-use crate::
-    mst::hex_string
-;
+use crate::mst::hex_string;
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use std::path::PathBuf;
@@ -68,6 +69,12 @@ enum Commands {
     Gc,
     /// Displays overhead stats
     Stat,
+    /// Serves iroh endpoint for syncing
+    Serve,
+    /// Sync DB with given remote endpoint
+    Sync {
+        endpoint: iroh::EndpointId,
+    },
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -77,7 +84,7 @@ enum Tables {
     Refs,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     if let Commands::Init { engine } = args.command {
@@ -90,7 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if matches!(args.command, Commands::Stat) && !args.db_path.exists() {
-        return Err(format!("Database file does not exist: {:?}", args.db_path).into());
+        bail!("Database file does not exist: {:?}", args.db_path)
     }
 
     let db = Db::open(&args.db_path)?;
@@ -167,7 +174,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let target_ref_name = ref_name.as_deref().unwrap_or(ROOT_REF_NAME);
             if let (Some(entity), Some(attribute)) = (entity, attribute) {
                 if let Some(value) = db.read_ref(target_ref_name, entity, attribute)? {
-                    println!("Read at ref {}: ({}, {}, {})", target_ref_name, entity, attribute, value);
+                    println!(
+                        "Read at ref {}: ({}, {}, {})",
+                        target_ref_name, entity, attribute, value
+                    );
                 } else {
                     println!(
                         "EAV triple ('{}', '{}') not found in ref",
@@ -188,6 +198,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Gc => {
             println!("Not yet implemented");
         }
+        Commands::Serve => {
+            serve::run()?;
+        }
+        Commands::Sync { endpoint } => sync::run(*endpoint)?,
     }
 
     Ok(())

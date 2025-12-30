@@ -32,6 +32,9 @@ pub enum Engine {
 
 #[derive(Error, Debug)]
 pub enum DbError {
+    #[error("could not open Redb")]
+    DatabaseError(#[from] redb::DatabaseError),
+    
     #[error("could not access Redb Table")]
     TableError(#[from] redb::TableError),
 
@@ -40,6 +43,9 @@ pub enum DbError {
 
     #[error("could not start transaction")]
     TxnError(#[from] redb::TransactionError),
+    
+    #[error("could not commit transaction")]
+    CommitError(#[from] redb::CommitError),
 
     #[error("could not access the Merkle Search Tree")]
     MstError(#[from] MstError),
@@ -63,7 +69,7 @@ pub struct Db {
 }
 
 impl Db {
-    pub fn init(db_path: &Path, engine: Engine) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn init(db_path: &Path, engine: Engine) -> Result<Self, DbError> {
         let db = Database::create(db_path)?;
         let write_txn = db.begin_write()?;
         {
@@ -79,7 +85,7 @@ impl Db {
         Ok(Db { redb: db, engine })
     }
 
-    pub fn open(db_path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn open(db_path: &Path) -> Result<Self, DbError> {
         let db = Database::create(db_path)?;
         let read_txn = db.begin_read()?;
         
@@ -117,7 +123,7 @@ impl Db {
         entity: &str,
         attribute: &str,
         value: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), DbError> {
         let write_txn = self.redb.begin_write()?;
         {
             // update EAV table
@@ -179,7 +185,7 @@ impl Db {
         &self,
         entity: &str,
         attribute: &str,
-    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<String>, DbError> {
         let read_txn = self.redb.begin_read()?;
         let table = read_txn.open_table(EAV_TABLE)?;
         if let Some(read_value) = table.get(&(entity, attribute))? {
@@ -218,7 +224,7 @@ impl Db {
         }
     }
 
-    pub fn stat(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn stat(&self) -> Result<(), DbError> {
         let read_txn = self.redb.begin_read()?;
 
         let mut total_user_bytes: u64 = 0;

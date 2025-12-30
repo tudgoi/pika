@@ -1,11 +1,14 @@
 use crate::mst::Hash;
+use crate::mst::MstError;
 use crate::mst::MstItem;
 use crate::mst::MstNode;
 use crate::mst::MstTreeItem;
-use crate::pt::{PtItem, PtNode};
+use crate::pt::PtTreeItem;
+use crate::pt::{PtError, PtItem, PtNode};
 use clap::ValueEnum;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::path::Path;
+use thiserror::Error;
 
 pub type Entity = str;
 pub type Attribute = str;
@@ -24,6 +27,30 @@ pub const ROOT_REF_NAME: &str = "root";
 pub enum Engine {
     Mst,
     Pt,
+}
+
+#[derive(Error, Debug)]
+pub enum DbError {
+    #[error("could not access Redb Table")]
+    TableError(#[from] redb::TableError),
+
+    #[error("could not access Redb")]
+    RedbError(#[from] redb::StorageError),
+
+    #[error("could not start transaction")]
+    TxnError(#[from] redb::TransactionError),
+
+    #[error("could not access the Merkle Search Tree")]
+    MstError(#[from] MstError),
+
+    #[error("could not access the Prolly Tree")]
+    PtError(#[from] PtError),
+
+    #[error("could not read root hash")]
+    RootHashNotFound,
+
+    #[error("IO error")]
+    IoError(#[from] std::io::Error),
 }
 
 pub struct Db {
@@ -84,7 +111,7 @@ impl Db {
                         )?
                     };
 
-                    // Prolly Tree root management: 
+                    // Prolly Tree root management:
                     // If upsert returned multiple refs, we must continue chunking up
                     // until we have a single root node.
                     while current_refs.len() > 1 {
@@ -112,6 +139,35 @@ impl Db {
             Ok(Some(read_value.value().to_string()))
         } else {
             Ok(None)
+        }
+    }
+
+    pub fn read_ref(
+        &self,
+        ref_name: &str,
+        entity: &str,
+        attribute: &str,
+    ) -> Result<Option<String>, DbError> {
+        let read_txn = self.redb.begin_read()?;
+        let refs_table = read_txn.open_table(REFS_TABLE)?;
+        let repo_table = read_txn.open_table(REPO_TABLE)?;
+        if let Some(root_hash) = refs_table.get(ref_name)?.map(|guard| *guard.value()) {
+            match self.engine {
+                Engine::Mst => {
+                    let mst_node: MstNode<(String, String), String> =
+                        MstNode::load(&repo_table, &root_hash)?;
+                    let key = (entity.to_string(), attribute.to_string());
+                    Ok(mst_node.find(&repo_table, &key)?)
+                }
+                Engine::Pt => {
+                    let pt_node: PtNode<(String, String), String> =
+                        PtNode::load(&repo_table, &root_hash)?;
+                    let key = (entity.to_string(), attribute.to_string());
+                    Ok(pt_node.find(&repo_table, &key)?)
+                }
+            }
+        } else {
+            Err(DbError::RootHashNotFound)
         }
     }
 
@@ -154,27 +210,50 @@ impl Db {
                 total_user_bytes - total_repo_bytes
             );
         }
-        
+
         if total_user_bytes > 0 {
-             println!("Overhead Ratio: {:.2}x", total_repo_bytes as f64 / total_user_bytes as f64);
+            println!(
+                "Overhead Ratio: {:.2}x",
+                total_repo_bytes as f64 / total_user_bytes as f64
+            );
         }
 
         Ok(())
     }
-}
 
-pub fn print_mst_recursive(
-    db: &redb::Database,
-    hash: Hash,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let write_txn = db.begin_write()?;
-    let repo_table = write_txn.open_table(REPO_TABLE)?;
+    pub fn print_ref_recursive(&self, ref_name: &str) -> Result<(), DbError> {
+        let read_txn = self.redb.begin_read()?;
+        let refs_table = read_txn.open_table(REFS_TABLE)?;
+        if let Some(root_hash) = refs_table.get(ref_name)?.map(|guard| *guard.value()) {
+            let read_txn = self.redb.begin_read()?;
+            let repo_table = read_txn.open_table(REPO_TABLE)?;
 
-    let mst_tree_item = MstTreeItem::<(String, String), String> {
-        item: MstItem::Ref(hash),
-        repo_table: &repo_table,
-    };
-    ptree::print_tree(&mst_tree_item)?;
+            match self.engine {
+                Engine::Mst => {
+                    let mst_tree_item = MstTreeItem::<(String, String), String, _> {
+                        item: MstItem::Ref(root_hash),
+                        repo_table: &repo_table,
+                    };
+                    ptree::print_tree(&mst_tree_item)?;
+                }
+                Engine::Pt => {
+                    // We fake a root Ref item to start the tree
+                    // Ideally we would want to display the Root Node itself, but TreeItem usually represents a Node/Item.
+                    // PtItem::Ref logic works if we treat the "root" as a Ref to the actual root node.
+                    let root_item = PtItem::Ref(("ROOT".to_string(), "".to_string()), root_hash);
 
-    Ok(())
+                    // Note: K=String, V=String hardcoded for CLI usage, similar to Mst
+                    let pt_tree_item = PtTreeItem::<(String, String), String, _> {
+                        item: root_item,
+                        repo_table: &repo_table,
+                    };
+                    ptree::print_tree(&pt_tree_item)?;
+                }
+            }
+        } else {
+            println!("could not find ref: {}", ref_name);
+        }
+
+        Ok(())
+    }
 }

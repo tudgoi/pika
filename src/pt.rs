@@ -346,16 +346,9 @@ where
         Ok(node_hash)
     }
 
-    // Renamed internal call to save as well for consistency, or keep it wrapper?
-    // It's easier to just use save.
-    fn put_node_to_repo(
-        repo_table: &mut Table<Hash, Blob>,
-        node: &PtNode<K, V>,
-    ) -> Result<Hash, PtError> {
-        Self::save(repo_table, node)
-    }
-
     /// Calculates the height of the tree starting from this node.
+    /// Used in tests.
+    #[allow(dead_code)]
     pub fn height<T: ReadableTable<Hash, Blob>>(
         &self,
         repo_table: &T,
@@ -377,17 +370,26 @@ use ptree::TreeItem;
 use std::borrow::Cow;
 
 /// A wrapper struct for `PtItem` to implement `ptree::TreeItem` for visualization.
-#[derive(Clone)]
-pub struct PtTreeItem<'a, K: Key + Clone, V: Clone> {
+pub struct PtTreeItem<'a, K: Key + Clone, V: Clone, T: ReadableTable<Hash, Blob>> {
     pub item: PtItem<K, V>,
-    pub repo_table: &'a Table<'a, Hash, Blob>,
+    pub repo_table: &'a T,
+}
+
+impl<'a, K: Key + Clone, V: Clone, T: ReadableTable<Hash, Blob>> Clone for PtTreeItem<'a, K, V, T> {
+    fn clone(&self) -> Self {
+        Self {
+            item: self.item.clone(),
+            repo_table: self.repo_table,
+        }
+    }
 }
 
 impl<
     'a,
     K: Key + Clone + Serialize + for<'de> Deserialize<'de> + Ord,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
-> TreeItem for PtTreeItem<'a, K, V>
+    T: ReadableTable<Hash, Blob>
+> TreeItem for PtTreeItem<'a, K, V, T>
 where
     K: for<'b> Borrow<<K as redb::Value>::SelfType<'b>>,
 {
@@ -423,29 +425,6 @@ where
     }
 }
 
-pub fn print_pt_recursive(
-    db: &redb::Database,
-    hash: Hash,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::db::REPO_TABLE;
-    let write_txn = db.begin_write()?;
-    let repo_table = write_txn.open_table(REPO_TABLE)?;
-
-    // We fake a root Ref item to start the tree
-    // Ideally we would want to display the Root Node itself, but TreeItem usually represents a Node/Item.
-    // PtItem::Ref logic works if we treat the "root" as a Ref to the actual root node.
-    let root_item = PtItem::Ref(("ROOT".to_string(), "".to_string()), hash); 
-    
-    // Note: K=String, V=String hardcoded for CLI usage, similar to Mst
-    let pt_tree_item = PtTreeItem::<(String, String), String> {
-        item: root_item,
-        repo_table: &repo_table,
-    };
-    ptree::print_tree(&pt_tree_item)?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,7 +458,7 @@ mod tests {
             
             // Create a root node pointing to these refs
             let root = PtNode(refs);
-            let root_hash = PtNode::put_node_to_repo(&mut repo_table, &root).unwrap();
+            let root_hash = PtNode::save(&mut repo_table, &root).unwrap();
 
             // 2. Find
             let loaded_root = PtNode::<TestKey, TestValue>::load(&repo_table, &root_hash).unwrap();
@@ -501,7 +480,7 @@ mod tests {
                 .unwrap();
                 
             let mut root = PtNode(current_refs.clone());
-            let mut root_hash = PtNode::put_node_to_repo(&mut repo_table, &root).unwrap();
+            let mut root_hash = PtNode::save(&mut repo_table, &root).unwrap();
 
             // Insert enough items to force splits
             for i in 0..100 {
@@ -516,7 +495,7 @@ mod tests {
                 // or we just have a new set of children for the root.
                 // We wrap them in a new root.
                 root = PtNode(current_refs.clone());
-                root_hash = PtNode::put_node_to_repo(&mut repo_table, &root).unwrap();
+                root_hash = PtNode::save(&mut repo_table, &root).unwrap();
             }
             
             // Verify we can find them all

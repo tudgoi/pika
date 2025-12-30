@@ -38,16 +38,6 @@ pub enum MstItem<K: Key, V> {
     Ref(Hash),
 }
 
-impl<K: Key, V> MstItem<K, V> {
-    /// Returns the key if this item is a payload, or `None` if it is a reference.
-    pub fn get_key(&self) -> Option<&K> {
-        match self {
-            MstItem::Payload(k, _) => Some(k),
-            MstItem::Ref(_) => None,
-        }
-    }
-}
-
 /// A node in the Merkle Search Tree.
 ///
 /// It contains a list of `MstItem`s, which can be payloads or references to other nodes.
@@ -453,17 +443,26 @@ where
 }
 
 /// A wrapper struct for `MstItem` to implement `ptree::TreeItem` for visualization.
-#[derive(Clone)]
-pub struct MstTreeItem<'a, K: Key + Clone, V: Clone> {
+pub struct MstTreeItem<'a, K: Key + Clone, V: Clone, T: ReadableTable<Hash, Blob>> {
     pub item: MstItem<K, V>,
-    pub repo_table: &'a Table<'a, Hash, Blob>,
+    pub repo_table: &'a T,
+}
+
+impl<'a, K: Key + Clone, V: Clone, T: ReadableTable<Hash, Blob>> Clone for MstTreeItem<'a, K, V, T> {
+    fn clone(&self) -> Self {
+        Self {
+            item: self.item.clone(),
+            repo_table: self.repo_table,
+        }
+    }
 }
 
 impl<
     'a,
     K: Key + Clone + Serialize + for<'de> Deserialize<'de> + Ord,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
-> TreeItem for MstTreeItem<'a, K, V>
+    T: ReadableTable<Hash, Blob>,
+> TreeItem for MstTreeItem<'a, K, V, T>
 where
     K: for<'b> Borrow<<K as redb::Value>::SelfType<'b>>,
 {

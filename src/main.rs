@@ -2,16 +2,14 @@ mod db;
 mod mst;
 mod pt;
 
-use crate::{
-    db::{print_mst_recursive},
-    mst::{hex_string},
-    pt::{print_pt_recursive},
-};
+use crate::
+    mst::hex_string
+;
 use clap::{Parser, Subcommand, ValueEnum};
 use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use std::path::PathBuf;
 
-use db::{Db, EAV_TABLE, ROOT_REF_NAME, REFS_TABLE, REPO_TABLE, Engine};
+use db::{Db, EAV_TABLE, Engine, REFS_TABLE, REPO_TABLE, ROOT_REF_NAME};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -51,11 +49,16 @@ enum Commands {
         #[arg(value_enum, default_value_t = Tables::Eav)]
         table_name: Tables,
     },
-    /// Displays the Merkle Search Tree from mst_root
+    /// Displays a specific key value from the ref or the entire ref as a tree
     Ref {
-        /// The name of the reference to display. Defaults to root ref for selected engine.
-        #[arg(short, long)]
+        /// The ref name which needs to be displayed. If key is not specified, the entire ref is displayed as a tree.
         ref_name: Option<String>,
+
+        /// The name of the entity whose attribute value needs to be displayed
+        entity: Option<String>,
+
+        /// The name of the attribute whose value needs to be displayed
+        attribute: Option<String>,
     },
     /// Commits all records into repo
     Commit,
@@ -144,22 +147,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Commands::Ref { ref_name } => {
-            let read_txn = db.redb.begin_read()?;
-            let refs_table = read_txn.open_table(REFS_TABLE)?;
-
+        Commands::Ref {
+            ref_name,
+            entity,
+            attribute,
+        } => {
             let target_ref_name = ref_name.as_deref().unwrap_or(ROOT_REF_NAME);
-
-            println!("Displaying Tree for '{}':", target_ref_name);
-            if let Some(root_hash) =
-                refs_table.get(target_ref_name)?.map(|guard| *guard.value())
-            {
-                match args.engine {
-                    Engine::Mst => print_mst_recursive(&db.redb, root_hash)?,
-                    Engine::Pt => print_pt_recursive(&db.redb, root_hash)?,
+            if let (Some(entity), Some(attribute)) = (entity, attribute) {
+                if let Some(value) = db.read_ref(target_ref_name, entity, attribute)? {
+                    println!("Read at ref {}: ({}, {}, {})", target_ref_name, entity, attribute, value);
+                } else {
+                    println!(
+                        "EAV triple ('{}', '{}') not found in ref",
+                        entity, attribute
+                    );
                 }
             } else {
-                println!("No root found for '{}'.", target_ref_name);
+                println!("Displaying Tree for '{}':", target_ref_name);
+                db.print_ref_recursive(target_ref_name)?;
             }
         }
         Commands::Stat => {

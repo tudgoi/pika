@@ -5,7 +5,8 @@ use redb::{Key, ReadableTable, Table};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::db::{Blob, hex_string};
+use crate::db::{hex_string};
+use crate::db::table::Blob;
 
 /// Errors that can occur when interacting with the Prolly Tree.
 #[derive(Error, Debug)]

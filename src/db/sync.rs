@@ -1,7 +1,11 @@
 use iroh::{
-    Endpoint, EndpointAddr, EndpointId, endpoint::{BindError, Connection}, protocol::{AcceptError, ProtocolHandler}
+    Endpoint, EndpointAddr, EndpointId,
+    endpoint::{BindError, Connection},
+    protocol::{AcceptError, ProtocolHandler},
 };
+use redb::{ReadableDatabase, TransactionError};
 use thiserror::Error;
+use crate::db::option::{OptionError, OptionExt};
 
 use crate::db::Db;
 
@@ -20,13 +24,13 @@ pub enum DbSyncError {
 
     #[error("error waiting for task to shutdown")]
     JoinError(#[from] tokio::task::JoinError),
-    
+
     #[error("could not connect to endpoint")]
     ConnectError(#[from] iroh::endpoint::ConnectError),
 
     #[error("error on connection")]
     ConnectionError(#[from] iroh::endpoint::ConnectionError),
-    
+
     #[error("error writing on connection")]
     WriteError(#[from] iroh::endpoint::WriteError),
 
@@ -35,6 +39,18 @@ pub enum DbSyncError {
 
     #[error("stream is closed")]
     StreamClosed(#[from] iroh::endpoint::ClosedStream),
+
+    #[error("redb transaction error")]
+    TransactionError(#[from] TransactionError),
+
+    #[error("redb storage error")]
+    StorageError(#[from] redb::StorageError),
+
+    #[error("option error")]
+    OptionError(#[from] OptionError),
+
+    #[error("redb generic error")]
+    RedbGeneric(#[from] redb::Error),
 }
 
 pub trait DbSync {
@@ -72,7 +88,15 @@ impl ProtocolHandler for DbSyncHandler {
 impl DbSync for Db {
     async fn serve(&self) -> Result<(), DbSyncError> {
         let mdns = iroh::discovery::mdns::MdnsDiscovery::builder();
-        let endpoint = Endpoint::builder().discovery(mdns).bind().await?;
+
+        let read_txn = self.redb.begin_read()?;
+        let secret = read_txn.option_table()?.get_secret_key()?;
+
+        let endpoint = Endpoint::builder()
+            .discovery(mdns)
+            .secret_key(secret)
+            .bind()
+            .await?;
         println!("endpoint id: {:?}", endpoint.id());
 
         let router = iroh::protocol::Router::builder(endpoint)
@@ -86,7 +110,11 @@ impl DbSync for Db {
         Ok(())
     }
 
-    async fn fetch(&self, _remote_name: &str, endpoint_id: iroh::EndpointId) -> Result<(), DbSyncError> {
+    async fn fetch(
+        &self,
+        _remote_name: &str,
+        endpoint_id: iroh::EndpointId,
+    ) -> Result<(), DbSyncError> {
         let endpoint = Endpoint::bind().await?;
 
         // Open a connection to the accepting endpoint

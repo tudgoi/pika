@@ -6,7 +6,9 @@ use redb::{Key, ReadableTable, Table};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::db::{Blob, hex_string};
+use crate::db::{hex_string};
+use crate::db::table::Blob;
+use crate::db::table::Hash;
 
 /// Errors that can occur when interacting with the Merkle Search Tree.
 #[derive(Error, Debug)]
@@ -20,9 +22,6 @@ pub enum MstError {
     #[error("could not find ref: {hash:?})")]
     RefNotFound { hash: Hash },
 }
-
-/// A 32-byte hash used to identify nodes in the MST.
-pub type Hash = [u8; 32];
 
 /// An item in an MST node.
 ///

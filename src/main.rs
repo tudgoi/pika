@@ -7,7 +7,9 @@ use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use std::path::PathBuf;
 
 use db::sync::DbSync;
-use db::{Db, EAV_TABLE, Engine, REFS_TABLE, REPO_TABLE, ROOT_REF_NAME};
+use db::{
+    Db, Engine, table::EAV_TABLE, table::REFS_TABLE, table::REPO_TABLE, table::ROOT_REF_NAME,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -195,7 +197,7 @@ async fn main() -> Result<()> {
             println!("Not yet implemented");
         }
         Commands::Gc => {
-            println!("Not yet implemented");
+            todo!("Not yet implemented");
         }
         Commands::Serve => db.serve().await?,
 

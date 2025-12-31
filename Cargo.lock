@@ -2232,6 +2232,7 @@ dependencies = [
  "iroh",
  "postcard",
  "ptree",
+ "rand 0.9.2",
  "redb",
  "serde 1.0.228",
  "tempfile",

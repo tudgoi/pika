@@ -1,11 +1,11 @@
+use crate::db::option::{OptionError, OptionExt};
 use iroh::{
-    Endpoint, EndpointAddr, EndpointId,
+    Endpoint, EndpointAddr,
     endpoint::{BindError, Connection},
     protocol::{AcceptError, ProtocolHandler},
 };
 use redb::{ReadableDatabase, TransactionError};
 use thiserror::Error;
-use crate::db::option::{OptionError, OptionExt};
 
 use crate::db::Db;
 
@@ -55,7 +55,7 @@ pub enum DbSyncError {
 
 pub trait DbSync {
     async fn serve(&self) -> Result<(), DbSyncError>;
-    async fn fetch(&self, ref_name: &str, endpoint_id: EndpointId) -> Result<(), DbSyncError>;
+    async fn fetch(&self, remote_name: &str) -> Result<(), DbSyncError>;
 }
 
 impl ProtocolHandler for DbSyncHandler {
@@ -110,11 +110,11 @@ impl DbSync for Db {
         Ok(())
     }
 
-    async fn fetch(
-        &self,
-        _remote_name: &str,
-        endpoint_id: iroh::EndpointId,
-    ) -> Result<(), DbSyncError> {
+    async fn fetch(&self, remote_name: &str) -> Result<(), DbSyncError> {
+        let read_txn = self.redb.begin_read()?;
+        let options = read_txn.option_table()?;
+        let endpoint_id = options.get_remote(remote_name)?;
+
         let endpoint = Endpoint::bind().await?;
 
         // Open a connection to the accepting endpoint

@@ -189,7 +189,7 @@ impl Db {
     pub fn print_remotes(&self) -> Result<(), DbError> {
         let read_txn = self.redb.begin_read()?;
         let options = read_txn.option_table()?;
-        match options.get_remotes() {
+        match options.get_all_remotes() {
             Ok(remotes) => {
                 println!("Remotes:");
                 for (name, bytes) in remotes {

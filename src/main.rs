@@ -76,10 +76,9 @@ enum Commands {
         #[command(subcommand)]
         command: Option<RemoteCommand>,
     },
-    /// Sync DB with given remote endpoint
-    Sync {
+    /// Fetch DB from given remote
+    Fetch {
         remote_name: String,
-        endpoint_id: iroh::EndpointId,
     },
 }
 
@@ -218,10 +217,9 @@ async fn main() -> Result<()> {
         }
         Commands::Serve => db.serve().await?,
 
-        Commands::Sync {
+        Commands::Fetch {
             remote_name,
-            endpoint_id,
-        } => db.fetch(remote_name, *endpoint_id).await?,
+        } => db.fetch(remote_name).await?,
 
         Commands::Remote { command } => {
             if let Some(command) = command {

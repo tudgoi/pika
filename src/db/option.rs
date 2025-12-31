@@ -23,6 +23,9 @@ pub enum OptionError {
 
     #[error("could not find option")]
     OptionNotSet,
+
+    #[error("Remote not found: {0}")]
+    RemoteNotFound(String),
 }
 
 pub struct OptionTable<T> {
@@ -53,13 +56,23 @@ impl<T: ReadableTable<u8, &'static [u8]>> OptionTable<T> {
         Ok(iroh::SecretKey::from_bytes(&bytes))
     }
 
-    pub fn get_remotes(&self) -> Result<Vec<(String, [u8; 32])>, OptionError> {
+    pub fn get_all_remotes(&self) -> Result<Vec<(String, EndpointId)>, OptionError> {
         let v = self
             .table
             .get(DbOption::Remotes as u8)?
             .ok_or(OptionError::OptionNotSet)?;
 
         Ok(postcard::from_bytes(v.value())?)
+    }
+
+    pub fn get_remote(&self, name: &str) -> Result<EndpointId, OptionError> {
+        let remotes = self.get_all_remotes()?;
+        let (_, bytes) = remotes
+            .into_iter()
+            .find(|(n, _)| n == name)
+            .ok_or_else(|| OptionError::RemoteNotFound(name.to_string()))?;
+
+        Ok(bytes)
     }
 }
 
@@ -79,7 +92,7 @@ impl<'txn> OptionTable<Table<'txn, u8, &'static [u8]>> {
         Ok(())
     }
 
-    fn set_remotes(&mut self, remotes: Vec<(String, [u8; 32])>) -> Result<(), OptionError> {
+    fn set_remotes(&mut self, remotes: Vec<(String, EndpointId)>) -> Result<(), OptionError> {
         let bytes = postcard::to_stdvec(&remotes)?;
         self.table
             .insert(DbOption::Remotes as u8, bytes.as_slice())?;
@@ -87,21 +100,21 @@ impl<'txn> OptionTable<Table<'txn, u8, &'static [u8]>> {
     }
 
     pub fn add_remote(&mut self, name: &str, endpoint_id: &EndpointId) -> Result<(), OptionError> {
-        let mut remotes = match self.get_remotes() {
+        let mut remotes = match self.get_all_remotes() {
             Ok(r) => r,
             Err(OptionError::OptionNotSet) => Vec::new(),
             Err(e) => return Err(e.into()),
         };
 
         remotes.retain(|(n, _)| n != name);
-        remotes.push((name.to_string(), *endpoint_id.as_bytes()));
+        remotes.push((name.to_string(), *endpoint_id));
 
         self.set_remotes(remotes)?;
         Ok(())
     }
 
     pub fn remove_remote(&mut self, name: &str) -> Result<(), OptionError> {
-        let mut remotes = match self.get_remotes() {
+        let mut remotes = match self.get_all_remotes() {
             Ok(r) => r,
             Err(OptionError::OptionNotSet) => return Ok(()),
             Err(e) => return Err(e.into()),

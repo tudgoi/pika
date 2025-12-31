@@ -1,4 +1,7 @@
-use redb::{Error, ReadOnlyTable, ReadTransaction, ReadableTable, Table, TableDefinition, WriteTransaction};
+use iroh::EndpointId;
+use redb::{
+    Error, ReadOnlyTable, ReadTransaction, ReadableTable, Table, TableDefinition, WriteTransaction,
+};
 use thiserror::Error;
 
 pub const TABLE: TableDefinition<u8, &[u8]> = TableDefinition::new("option");
@@ -7,6 +10,7 @@ pub const TABLE: TableDefinition<u8, &[u8]> = TableDefinition::new("option");
 enum DbOption {
     Engine = 0,
     SecretKey = 1,
+    Remotes = 2,
 }
 
 #[derive(Error, Debug)]
@@ -35,35 +39,84 @@ impl<T: ReadableTable<u8, &'static [u8]>> OptionTable<T> {
 
         Ok(postcard::from_bytes(v.value())?)
     }
-    
+
     pub fn get_secret_key(&self) -> Result<iroh::SecretKey, OptionError> {
         let v = self
             .table
             .get(DbOption::SecretKey as u8)?
             .ok_or(OptionError::OptionNotSet)?;
 
-        let bytes: [u8; 32] = v.value().try_into().map_err(|_| OptionError::OptionNotSet)?;
+        let bytes: [u8; 32] = v
+            .value()
+            .try_into()
+            .map_err(|_| OptionError::OptionNotSet)?;
         Ok(iroh::SecretKey::from_bytes(&bytes))
+    }
+
+    pub fn get_remotes(&self) -> Result<Vec<(String, [u8; 32])>, OptionError> {
+        let v = self
+            .table
+            .get(DbOption::Remotes as u8)?
+            .ok_or(OptionError::OptionNotSet)?;
+
+        Ok(postcard::from_bytes(v.value())?)
     }
 }
 
 // Setters (Available ONLY for Write tables)
 impl<'txn> OptionTable<Table<'txn, u8, &'static [u8]>> {
-    pub fn set_engine(&mut self, val: crate::db::Engine) -> Result<(), OptionError> {
-        let bytes = postcard::to_stdvec(&val)?;
-        self.table.insert(DbOption::Engine as u8, bytes.as_slice())?;
+    pub fn set_engine(&mut self, engine: crate::db::Engine) -> Result<(), OptionError> {
+        let bytes = postcard::to_stdvec(&engine)?;
+        self.table
+            .insert(DbOption::Engine as u8, bytes.as_slice())?;
         Ok(())
     }
 
     pub fn reset_secret_key(&mut self) -> Result<(), OptionError> {
         let secret = iroh::SecretKey::generate(&mut rand::rng());
-        self.table.insert(DbOption::SecretKey as u8, secret.to_bytes().as_slice())?;
+        self.table
+            .insert(DbOption::SecretKey as u8, secret.to_bytes().as_slice())?;
+        Ok(())
+    }
+
+    fn set_remotes(&mut self, remotes: Vec<(String, [u8; 32])>) -> Result<(), OptionError> {
+        let bytes = postcard::to_stdvec(&remotes)?;
+        self.table
+            .insert(DbOption::Remotes as u8, bytes.as_slice())?;
+        Ok(())
+    }
+
+    pub fn add_remote(&mut self, name: &str, endpoint_id: &EndpointId) -> Result<(), OptionError> {
+        let mut remotes = match self.get_remotes() {
+            Ok(r) => r,
+            Err(OptionError::OptionNotSet) => Vec::new(),
+            Err(e) => return Err(e.into()),
+        };
+
+        remotes.retain(|(n, _)| n != name);
+        remotes.push((name.to_string(), *endpoint_id.as_bytes()));
+
+        self.set_remotes(remotes)?;
+        Ok(())
+    }
+
+    pub fn remove_remote(&mut self, name: &str) -> Result<(), OptionError> {
+        let mut remotes = match self.get_remotes() {
+            Ok(r) => r,
+            Err(OptionError::OptionNotSet) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+
+        remotes.retain(|(n, _)| n != name);
+        self.set_remotes(remotes)?;
         Ok(())
     }
 }
 
 pub trait OptionExt {
-    type TableType<'a> where Self: 'a;
+    type TableType<'a>
+    where
+        Self: 'a;
     fn option_table(&self) -> Result<OptionTable<Self::TableType<'_>>, Error>;
 }
 

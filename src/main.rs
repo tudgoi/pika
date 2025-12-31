@@ -45,6 +45,7 @@ enum Commands {
         /// The attribute to read
         attribute: String,
     },
+    // TODO changes to list just the eav table
     /// Lists all key-value pairs in the database
     List {
         /// The table to list
@@ -70,10 +71,26 @@ enum Commands {
     Stat,
     /// Serves iroh endpoint for syncing
     Serve,
+    /// Remote endpoints
+    Remote {
+        #[command(subcommand)]
+        command: Option<RemoteCommand>,
+    },
     /// Sync DB with given remote endpoint
     Sync {
         remote_name: String,
         endpoint_id: iroh::EndpointId,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum RemoteCommand {
+    Add {
+        name: String,
+        endpoint_id: iroh::EndpointId,
+    },
+    Remove {
+        name: String,
     },
 }
 
@@ -191,7 +208,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Stat => {
-            db.stat()?;
+            db.print_stat()?;
         }
         Commands::Commit => {
             println!("Not yet implemented");
@@ -205,6 +222,17 @@ async fn main() -> Result<()> {
             remote_name,
             endpoint_id,
         } => db.fetch(remote_name, *endpoint_id).await?,
+
+        Commands::Remote { command } => {
+            if let Some(command) = command {
+                match command {
+                    RemoteCommand::Add { name, endpoint_id } => db.add_remote(name, endpoint_id)?,
+                    RemoteCommand::Remove { name } => db.remove_remote(name)?,
+                }
+            } else {
+                db.print_remotes()?;
+            }
+        }
     }
 
     Ok(())

@@ -1,23 +1,24 @@
-pub mod sync;
 mod mst;
-mod pt;
-pub mod table;
 mod option;
+mod pt;
+pub mod sync;
+pub mod table;
 
+use crate::db::option::OptionError;
+use clap::ValueEnum;
+use iroh::EndpointId;
 use mst::MstError;
 use mst::MstItem;
 use mst::MstNode;
 use mst::MstTreeItem;
+use option::OptionExt;
 use pt::PtTreeItem;
 use pt::{PtError, PtItem, PtNode};
-use clap::ValueEnum;
 use redb::{Database, ReadableDatabase, ReadableTable};
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
 use thiserror::Error;
-use option::OptionExt;
-use crate::db::option::OptionError;
 
 use crate::db::table::EAV_TABLE;
 use crate::db::table::REFS_TABLE;
@@ -34,7 +35,7 @@ pub enum Engine {
 pub enum DbError {
     #[error("could not open Redb")]
     DatabaseError(#[from] redb::DatabaseError),
-    
+
     #[error("could not access Redb Table")]
     TableError(#[from] redb::TableError),
 
@@ -43,7 +44,7 @@ pub enum DbError {
 
     #[error("could not start transaction")]
     TxnError(#[from] redb::TransactionError),
-    
+
     #[error("could not commit transaction")]
     CommitError(#[from] redb::CommitError),
 
@@ -77,7 +78,7 @@ impl Db {
         let db = Database::create(db_path)?;
         let write_txn = db.begin_write()?;
         {
-        let mut options = write_txn.option_table()?;
+            let mut options = write_txn.option_table()?;
             options.set_engine(engine)?;
             options.reset_secret_key()?;
         }
@@ -90,18 +91,13 @@ impl Db {
         let db = Database::create(db_path)?;
         let read_txn = db.begin_read()?;
         let options = read_txn.option_table()?;
-        
+
         let engine = options.get_engine()?;
 
         Ok(Db { redb: db, engine })
     }
 
-    pub fn write(
-        &self,
-        entity: &str,
-        attribute: &str,
-        value: &str,
-    ) -> Result<(), DbError> {
+    pub fn write(&self, entity: &str, attribute: &str, value: &str) -> Result<(), DbError> {
         let write_txn = self.redb.begin_write()?;
         {
             // update EAV table
@@ -159,11 +155,7 @@ impl Db {
         Ok(())
     }
 
-    pub fn read(
-        &self,
-        entity: &str,
-        attribute: &str,
-    ) -> Result<Option<String>, DbError> {
+    pub fn read(&self, entity: &str, attribute: &str) -> Result<Option<String>, DbError> {
         let read_txn = self.redb.begin_read()?;
         let table = read_txn.open_table(EAV_TABLE)?;
         if let Some(read_value) = table.get(&(entity, attribute))? {
@@ -173,6 +165,50 @@ impl Db {
         }
     }
 
+    pub fn add_remote(&self, name: &str, endpoint_id: &EndpointId) -> Result<(), DbError> {
+        let write_txn = self.redb.begin_write()?;
+        {
+            let mut options = write_txn.option_table()?;
+            options.add_remote(name, endpoint_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    pub fn remove_remote(&self, name: &str) -> Result<(), DbError> {
+        let write_txn = self.redb.begin_write()?;
+        {
+            let mut options = write_txn.option_table()?;
+            options.remove_remote(name)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    // TODO this is a debug function. Decide later how to expose this in production.
+    pub fn print_remotes(&self) -> Result<(), DbError> {
+        let read_txn = self.redb.begin_read()?;
+        let options = read_txn.option_table()?;
+        match options.get_remotes() {
+            Ok(remotes) => {
+                println!("Remotes:");
+                for (name, bytes) in remotes {
+                    if let Ok(eid) = EndpointId::from_bytes(&bytes) {
+                        println!("{}: {}", name, eid);
+                    } else {
+                        println!("{}: <invalid-id>", name);
+                    }
+                }
+            }
+            Err(OptionError::OptionNotSet) => {
+                println!("No remotes found.");
+            }
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    }
+
+    // TODO This is just a temporary API. Need to refine this later.
     pub fn read_ref(
         &self,
         ref_name: &str,
@@ -202,7 +238,7 @@ impl Db {
         }
     }
 
-    pub fn stat(&self) -> Result<(), DbError> {
+    pub fn print_stat(&self) -> Result<(), DbError> {
         let read_txn = self.redb.begin_read()?;
 
         let mut total_user_bytes: u64 = 0;
@@ -252,6 +288,7 @@ impl Db {
         Ok(())
     }
 
+    // TODO This is a debug API. Need to decide how to expose this in production verison.
     pub fn print_ref_recursive(&self, ref_name: &str) -> Result<(), DbError> {
         let read_txn = self.redb.begin_read()?;
         let refs_table = read_txn.open_table(REFS_TABLE)?;

@@ -6,7 +6,7 @@ use redb::{Key, ReadableTable, Table};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::db::Blob;
+use crate::db::{Blob, hex_string};
 
 /// Errors that can occur when interacting with the Merkle Search Tree.
 #[derive(Error, Debug)]
@@ -23,11 +23,6 @@ pub enum MstError {
 
 /// A 32-byte hash used to identify nodes in the MST.
 pub type Hash = [u8; 32];
-
-/// Converts a byte slice to a hex string.
-pub fn hex_string(buf: &[u8]) -> String {
-    buf.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-}
 
 /// An item in an MST node.
 ///

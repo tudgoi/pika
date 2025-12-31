@@ -1,10 +1,14 @@
-use crate::mst::Hash;
-use crate::mst::MstError;
-use crate::mst::MstItem;
-use crate::mst::MstNode;
-use crate::mst::MstTreeItem;
-use crate::pt::PtTreeItem;
-use crate::pt::{PtError, PtItem, PtNode};
+pub mod sync;
+mod mst;
+mod pt;
+
+use mst::Hash;
+use mst::MstError;
+use mst::MstItem;
+use mst::MstNode;
+use mst::MstTreeItem;
+use pt::PtTreeItem;
+use pt::{PtError, PtItem, PtNode};
 use clap::ValueEnum;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::path::Path;
@@ -63,6 +67,7 @@ pub enum DbError {
     NotInitialized(String),
 }
 
+#[derive(Debug)]
 pub struct Db {
     pub redb: redb::Database,
     pub engine: Engine,
@@ -309,4 +314,9 @@ impl Db {
 
         Ok(())
     }
+}
+
+/// Converts a byte slice to a hex string.
+pub fn hex_string(buf: &[u8]) -> String {
+    buf.iter().map(|b| format!("{:02x}", b)).collect::<String>()
 }

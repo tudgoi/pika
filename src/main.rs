@@ -1,15 +1,12 @@
 mod db;
-mod mst;
-mod pt;
-mod serve;
-mod sync;
 
-use crate::mst::hex_string;
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
+use db::hex_string;
 use redb::{ReadableDatabase, ReadableTable, TableHandle};
 use std::path::PathBuf;
 
+use db::sync::DbSync;
 use db::{Db, EAV_TABLE, Engine, REFS_TABLE, REPO_TABLE, ROOT_REF_NAME};
 
 #[derive(Parser, Debug)]
@@ -73,7 +70,8 @@ enum Commands {
     Serve,
     /// Sync DB with given remote endpoint
     Sync {
-        endpoint: iroh::EndpointId,
+        remote_name: String,
+        endpoint_id: iroh::EndpointId,
     },
 }
 
@@ -84,7 +82,8 @@ enum Tables {
     Refs,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
 
     if let Commands::Init { engine } = args.command {
@@ -198,10 +197,12 @@ fn main() -> Result<()> {
         Commands::Gc => {
             println!("Not yet implemented");
         }
-        Commands::Serve => {
-            serve::run()?;
-        }
-        Commands::Sync { endpoint } => sync::run(*endpoint)?,
+        Commands::Serve => db.serve().await?,
+
+        Commands::Sync {
+            remote_name,
+            endpoint_id,
+        } => db.fetch(remote_name, *endpoint_id).await?,
     }
 
     Ok(())

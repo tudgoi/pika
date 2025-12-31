@@ -5,7 +5,7 @@ use redb::{Key, ReadableTable, Table};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::db::Blob;
+use crate::db::{Blob, hex_string};
 
 /// Errors that can occur when interacting with the Prolly Tree.
 #[derive(Error, Debug)]
@@ -22,11 +22,6 @@ pub enum PtError {
 
 /// A 32-byte hash used to identify nodes in the PT.
 pub type Hash = [u8; 32];
-
-/// Converts a byte slice to a hex string.
-pub fn hex_string(buf: &[u8]) -> String {
-    buf.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-}
 
 /// An item in a Prolly Tree node.
 ///
@@ -61,7 +56,7 @@ pub struct PtNode<K: Key, V>(Vec<PtItem<K, V>>);
 const WINDOW_SIZE: usize = 32;
 // A small modulus ensures frequent splits for small datasets (good for testing/demo).
 // For real 4KB blocks, use something like 1 << 12 (4096).
-const CHUNK_MODULUS: u32 = 1 << 6; 
+const CHUNK_MODULUS: u32 = 1 << 6;
 
 /// Simple cyclic polynomial rolling hash (Buzhash-like)
 struct RollingHash {
@@ -83,9 +78,13 @@ impl RollingHash {
         let old = self.window[self.pos];
         self.window[self.pos] = b;
         self.pos = (self.pos + 1) % WINDOW_SIZE;
-        
+
         // Simple rotation and addition (not a full Buzhash with table, but sufficient for distribution)
-        self.sum = self.sum.rotate_left(1).wrapping_sub(old as u32).wrapping_add(b as u32);
+        self.sum = self
+            .sum
+            .rotate_left(1)
+            .wrapping_sub(old as u32)
+            .wrapping_add(b as u32);
     }
 
     fn is_boundary(&self) -> bool {
@@ -132,7 +131,7 @@ where
 
         // For Payload (Leaf): exact match required.
         // For Ref (Internal): we need the child that covers the key range.
-        
+
         // If empty, nothing to find.
         if self.0.is_empty() {
             return Ok(None);
@@ -140,7 +139,7 @@ where
 
         // Check the item at idx-1 (since partition_point returns the first item > key)
         // Or if we are in a leaf, we might check idx-1 for equality if exact match.
-        
+
         // Strategy: Iterate to check types.
         let is_leaf = matches!(self.0[0], PtItem::Payload(_, _));
 
@@ -150,10 +149,10 @@ where
             // So we check idx - 1.
             if idx > 0 {
                 if let PtItem::Payload(k, v) = &self.0[idx - 1] {
-                     let k_bytes = K::as_bytes(k.borrow());
-                     if K::compare(k_bytes.as_ref(), key_bytes_borrow.as_ref()) == Ordering::Equal {
-                         return Ok(Some(v.clone()));
-                     }
+                    let k_bytes = K::as_bytes(k.borrow());
+                    if K::compare(k_bytes.as_ref(), key_bytes_borrow.as_ref()) == Ordering::Equal {
+                        return Ok(Some(v.clone()));
+                    }
                 }
             }
             // Check idx as well just in case (though partition_point semantics say idx is > key)
@@ -162,15 +161,15 @@ where
             // False when: item > key.
             // So idx is the first item strictly greater than key.
             // So the candidate is indeed idx - 1.
-            
+
             // However, if the list is [A, C] and we look for B.
             // A <= B (True). C <= B (False). idx = 1 (points to C).
             // Check idx-1 (A). A != B. Not found.
-            
+
             // If list is [A, B] and we look for B.
             // A <= B (True). B <= B (True). idx = 2 (end).
             // Check idx-1 (B). B == B. Found.
-            
+
             return Ok(None);
         } else {
             // Internal node.
@@ -205,76 +204,78 @@ where
         value: V,
     ) -> Result<Vec<PtItem<K, V>>, PtError> {
         let is_leaf = self.0.is_empty() || matches!(self.0[0], PtItem::Payload(_, _));
-        
+
         let mut new_items: Vec<PtItem<K, V>>;
 
         if is_leaf {
-             // 1. Modify the items list
-             new_items = self.0.clone();
-             
-             // Find insertion point
-             // We use a scope to limit the borrow of key
-             let idx = {
-                 let key_bytes_borrow = K::as_bytes(key.borrow());
-                 new_items.partition_point(|item| {
+            // 1. Modify the items list
+            new_items = self.0.clone();
+
+            // Find insertion point
+            // We use a scope to limit the borrow of key
+            let idx = {
+                let key_bytes_borrow = K::as_bytes(key.borrow());
+                new_items.partition_point(|item| {
                     let item_key_bytes = K::as_bytes(item.key().borrow());
                     K::compare(item_key_bytes.as_ref(), key_bytes_borrow.as_ref()) == Ordering::Less
-                 })
-             };
-             
-             // Check if update or insert
-             let mut is_update = false;
-             if idx < new_items.len() {
-                 let is_equal = {
-                     let key_bytes_borrow = K::as_bytes(key.borrow());
-                     let curr_key_bytes = K::as_bytes(new_items[idx].key().borrow());
-                     K::compare(curr_key_bytes.as_ref(), key_bytes_borrow.as_ref()) == Ordering::Equal
-                 };
-                 
-                 if is_equal {
-                     new_items[idx] = PtItem::Payload(key.clone(), value.clone());
-                     is_update = true;
-                 }
-             }
-             
-             if !is_update {
-                 new_items.insert(idx, PtItem::Payload(key, value));
-             }
-        } else {
-             // Internal node: find child and recurse
-             
-             let idx = {
-                 let key_bytes_borrow = K::as_bytes(key.borrow());
-                 self.0.partition_point(|item| {
-                    let item_key_bytes = K::as_bytes(item.key().borrow());
-                    K::compare(item_key_bytes.as_ref(), key_bytes_borrow.as_ref()) != Ordering::Greater
-                 })
-             };
-             
-             let child_idx = if idx > 0 { idx - 1 } else { 0 };
-             
-             // Defensive check if empty (shouldn't happen for valid internal node unless root was empty internal?)
-             if self.0.is_empty() {
-                 // Should have been treated as leaf
-                 return Ok(vec![]);
-             }
+                })
+            };
 
-             if let PtItem::Ref(_, child_hash) = &self.0[child_idx] {
-                 let child = Self::load(repo_table, child_hash)?;
-                 let new_child_refs = child.upsert(repo_table, key, value)?;
-                 
-                 new_items = self.0.clone();
-                 // Replace the single old ref with the new refs (which could be 1 or many)
-                 new_items.splice(child_idx..child_idx+1, new_child_refs);
-             } else {
-                 return Err(PtError::RefNotFound { hash: [0;32] }); // Should not happen
-             }
+            // Check if update or insert
+            let mut is_update = false;
+            if idx < new_items.len() {
+                let is_equal = {
+                    let key_bytes_borrow = K::as_bytes(key.borrow());
+                    let curr_key_bytes = K::as_bytes(new_items[idx].key().borrow());
+                    K::compare(curr_key_bytes.as_ref(), key_bytes_borrow.as_ref())
+                        == Ordering::Equal
+                };
+
+                if is_equal {
+                    new_items[idx] = PtItem::Payload(key.clone(), value.clone());
+                    is_update = true;
+                }
+            }
+
+            if !is_update {
+                new_items.insert(idx, PtItem::Payload(key, value));
+            }
+        } else {
+            // Internal node: find child and recurse
+
+            let idx = {
+                let key_bytes_borrow = K::as_bytes(key.borrow());
+                self.0.partition_point(|item| {
+                    let item_key_bytes = K::as_bytes(item.key().borrow());
+                    K::compare(item_key_bytes.as_ref(), key_bytes_borrow.as_ref())
+                        != Ordering::Greater
+                })
+            };
+
+            let child_idx = if idx > 0 { idx - 1 } else { 0 };
+
+            // Defensive check if empty (shouldn't happen for valid internal node unless root was empty internal?)
+            if self.0.is_empty() {
+                // Should have been treated as leaf
+                return Ok(vec![]);
+            }
+
+            if let PtItem::Ref(_, child_hash) = &self.0[child_idx] {
+                let child = Self::load(repo_table, child_hash)?;
+                let new_child_refs = child.upsert(repo_table, key, value)?;
+
+                new_items = self.0.clone();
+                // Replace the single old ref with the new refs (which could be 1 or many)
+                new_items.splice(child_idx..child_idx + 1, new_child_refs);
+            } else {
+                return Err(PtError::RefNotFound { hash: [0; 32] }); // Should not happen
+            }
         }
 
         // 2. Re-chunk (Split) based on Rolling Hash
         Self::chunk_and_save(repo_table, new_items)
     }
-    
+
     /// Processes a list of items, chunks them using the rolling hash,
     /// saves the chunks to the repo, and returns references to them.
     pub fn chunk_and_save(
@@ -332,10 +333,7 @@ where
     }
 
     /// Serializes and saves the node to the repository. Returns the hash.
-    pub fn save(
-        repo_table: &mut Table<Hash, Blob>,
-        node: &PtNode<K, V>,
-    ) -> Result<Hash, PtError> {
+    pub fn save(repo_table: &mut Table<Hash, Blob>, node: &PtNode<K, V>) -> Result<Hash, PtError> {
         let encoded = postcard::to_stdvec(node)?;
         let blake3_hash = blake3::hash(&encoded);
         let node_hash: Hash = *blake3_hash.as_bytes();
@@ -349,10 +347,7 @@ where
     /// Calculates the height of the tree starting from this node.
     /// Used in tests.
     #[allow(dead_code)]
-    pub fn height<T: ReadableTable<Hash, Blob>>(
-        &self,
-        repo_table: &T,
-    ) -> Result<usize, PtError> {
+    pub fn height<T: ReadableTable<Hash, Blob>>(&self, repo_table: &T) -> Result<usize, PtError> {
         if self.0.is_empty() {
             return Ok(1);
         }
@@ -388,7 +383,7 @@ impl<
     'a,
     K: Key + Clone + Serialize + for<'de> Deserialize<'de> + Ord,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
-    T: ReadableTable<Hash, Blob>
+    T: ReadableTable<Hash, Blob>,
 > TreeItem for PtTreeItem<'a, K, V, T>
 where
     K: for<'b> Borrow<<K as redb::Value>::SelfType<'b>>,
@@ -449,13 +444,15 @@ mod tests {
         let write_txn = db.begin_write().unwrap();
         {
             let mut repo_table = write_txn.open_table(TEST_REPO_TABLE).unwrap();
-            
+
             // 1. Initial Insert
             let node = PtNode::<TestKey, TestValue>::new();
             // Upsert returns a list of Refs (children of a hypothetical root).
             // We need to manage the root manually for the test.
-            let refs = node.upsert(&mut repo_table, "key1".to_string(), "val1".to_string()).unwrap();
-            
+            let refs = node
+                .upsert(&mut repo_table, "key1".to_string(), "val1".to_string())
+                .unwrap();
+
             // Create a root node pointing to these refs
             let root = PtNode(refs);
             let root_hash = PtNode::save(&mut repo_table, &root).unwrap();
@@ -467,37 +464,40 @@ mod tests {
         }
         write_txn.commit().unwrap();
     }
-    
+
     #[test]
     fn test_pt_split() {
         let (db, _dir) = setup_test_db();
         let write_txn = db.begin_write().unwrap();
         {
             let mut repo_table = write_txn.open_table(TEST_REPO_TABLE).unwrap();
-            
+
             let mut current_refs = PtNode::<TestKey, TestValue>::new()
                 .upsert(&mut repo_table, "init".to_string(), "val".to_string())
                 .unwrap();
-                
+
             let mut root = PtNode(current_refs.clone());
             let mut root_hash = PtNode::save(&mut repo_table, &root).unwrap();
 
             // Insert enough items to force splits
             for i in 0..100 {
-                let loaded_root = PtNode::<TestKey, TestValue>::load(&repo_table, &root_hash).unwrap();
-                current_refs = loaded_root.upsert(
-                    &mut repo_table, 
-                    format!("key_{:03}", i), 
-                    format!("val_{}", i)
-                ).unwrap();
-                
+                let loaded_root =
+                    PtNode::<TestKey, TestValue>::load(&repo_table, &root_hash).unwrap();
+                current_refs = loaded_root
+                    .upsert(
+                        &mut repo_table,
+                        format!("key_{:03}", i),
+                        format!("val_{}", i),
+                    )
+                    .unwrap();
+
                 // If current_refs has > 1 item, the root effectively split (height grew)
                 // or we just have a new set of children for the root.
                 // We wrap them in a new root.
                 root = PtNode(current_refs.clone());
                 root_hash = PtNode::save(&mut repo_table, &root).unwrap();
             }
-            
+
             // Verify we can find them all
             let loaded_root = PtNode::<TestKey, TestValue>::load(&repo_table, &root_hash).unwrap();
             for i in 0..100 {
@@ -514,26 +514,35 @@ mod tests {
         let write_txn = db.begin_write().unwrap();
         {
             let mut repo_table = write_txn.open_table(TEST_REPO_TABLE).unwrap();
-            let mut root_hash = PtNode::<TestKey, TestValue>::save(&mut repo_table, &PtNode::new()).unwrap();
+            let mut root_hash =
+                PtNode::<TestKey, TestValue>::save(&mut repo_table, &PtNode::new()).unwrap();
 
             for i in 0..100 {
                 let root = PtNode::<TestKey, TestValue>::load(&repo_table, &root_hash).unwrap();
-                let mut current_refs = root.upsert(&mut repo_table, format!("k{:02}", i), format!("v{:02}", i)).unwrap();
-                
+                let mut current_refs = root
+                    .upsert(&mut repo_table, format!("k{:02}", i), format!("v{:02}", i))
+                    .unwrap();
+
                 // Proper root management
                 while current_refs.len() > 1 {
                     current_refs = PtNode::chunk_and_save(&mut repo_table, current_refs).unwrap();
                 }
-                
+
                 if let Some(PtItem::Ref(_, hash)) = current_refs.first() {
                     root_hash = *hash;
                 }
 
-                let final_root = PtNode::<TestKey, TestValue>::load(&repo_table, &root_hash).unwrap();
+                let final_root =
+                    PtNode::<TestKey, TestValue>::load(&repo_table, &root_hash).unwrap();
                 let current_height = final_root.height(&repo_table).unwrap();
-                
+
                 // For 100 items and CHUNK_MODULUS 64, height should be very small (2 or 3)
-                assert!(current_height <= 3, "Height grew too much: {} at iteration {}", current_height, i);
+                assert!(
+                    current_height <= 3,
+                    "Height grew too much: {} at iteration {}",
+                    current_height,
+                    i
+                );
             }
         }
     }
